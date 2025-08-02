@@ -1,0 +1,20 @@
+{
+    "test_queries": [
+        "vector database",
+        "Python programming", 
+        "hello world",
+        "markdown document"
+    ],
+    "milvus_test_queries": [
+        "vector database",
+        "Python class",
+        "greeting message"
+    ],
+    "embedding_dimension": 384,
+    "chunk_size": 1000,
+    "chunk_overlap": 100,
+    "test_collection_names": {
+        "mock": "test_collection_mock",
+        "milvus": "test_collection_milvus"
+    }
+}

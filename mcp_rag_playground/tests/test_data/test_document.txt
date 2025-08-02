@@ -1,0 +1,11 @@
+This is a plain text document for testing the vector database client.
+
+The document contains multiple paragraphs to test the chunking functionality.
+Each paragraph should be processed and stored as separate or overlapping chunks
+depending on the configuration.
+
+Vector databases are powerful tools for similarity search and retrieval.
+They enable semantic search capabilities that go beyond keyword matching.
+
+This text file will be processed, chunked, and embedded into vector space
+for efficient similarity search and retrieval operations.

@@ -9,10 +9,29 @@ This is a Python project called "mcp_rag_playground" set up as an IntelliJ IDEA 
 ## Project Structure
 
 - `venv/` - Python 3.9 virtual environment (activated via `venv/Scripts/activate` on Windows or `source venv/bin/activate` on Unix)
-- `mcp_rag_playground.iml` - IntelliJ IDEA module configuration file
 - `mcp_rag_playground/` - Main Python package containing project modules
-- `mcp_rag_playground/milvus_config.py` - Milvus vector database configuration and connection management
-- `test_milvus_config.py` - Test script for Milvus configuration
+  - `vector_client.py` - Main vector database client with upload() and query() methods
+  - `vectordb/` - Vector database implementations and interfaces
+    - `vector_db_interface.py` - Abstract interface for vector databases (SOLID compliance)
+    - `milvus_client.py` - Milvus-specific implementation
+    - `document_processor.py` - Generic document processing with multiple file type support
+    - `embedding_service.py` - Embedding service abstractions (sentence-transformers, mock)
+  - `config/` - Configuration management
+    - `milvus_config.py` - Milvus connection configuration
+    - `milvus_connection.py` - Milvus connection manager
+  - `container/` - Dependency injection container
+    - `container.py` - Main DI container implementation
+    - `config.py` - Configuration provider interfaces
+    - `providers.py` - Service provider implementations
+    - `factory.py` - Convenience factory methods
+  - `tests/` - Test suite with dedicated test data
+    - `test_vector_client.py` - Comprehensive test script for vector client
+    - `test_milvus_config.py` - Test script for Milvus configuration
+    - `test_data/` - Dedicated test data files
+      - `test_document.md` - Markdown test content
+      - `test_document.txt` - Plain text test content
+      - `test_module.py` - Python module test content
+      - `test_config.json` - Test configuration parameters
 - `vectordb/milvus/` - Milvus vector database Docker setup
 - `vectordb/milvus/docker-compose.yml` - Docker Compose configuration for running Milvus locally
 
@@ -26,6 +45,7 @@ This is a Python project called "mcp_rag_playground" set up as an IntelliJ IDEA 
 ## Dependencies
 
 - `pymilvus>=2.4.0` - Python SDK for Milvus vector database
+- `sentence-transformers>=2.2.0` - Embedding models for text vectorization
 
 ## Common Commands
 
@@ -54,13 +74,91 @@ To test Milvus configuration:
 python test_milvus_config.py
 ```
 
+To test the vector client:
+```bash
+python -m mcp_rag_playground.tests.test_vector_client
+```
+
+## Usage Examples
+
+### Basic Vector Client Usage
+
+#### Using Dependency Injection (Recommended)
+
+```python
+from mcp_rag_playground import create_vector_client
+
+# Create a client for development environment
+client = create_vector_client("dev")
+
+# Upload a file
+success = client.upload("path/to/document.txt")
+
+# Query for similar content
+results = client.query("your search query", limit=5)
+for result in results:
+    print(f"Score: {result.score}")
+    print(f"Content: {result.document.content}")
+```
+
+#### Manual Construction (Advanced)
+
+```python
+from mcp_rag_playground import VectorClient, MilvusVectorDB, SentenceTransformerEmbedding, DocumentProcessor
+
+# Initialize components manually
+embedding_service = SentenceTransformerEmbedding()
+vector_db = MilvusVectorDB()
+doc_processor = DocumentProcessor()
+client = VectorClient(vector_db, embedding_service, doc_processor)
+
+# Upload a file
+success = client.upload("path/to/document.txt")
+```
+
+#### Environment-Specific Clients
+
+```python
+from mcp_rag_playground import create_test_container, create_prod_container
+
+# Test environment (uses mock services)
+test_client = create_test_container().get("vector_client")
+
+# Production environment (uses real services)
+prod_client = create_prod_container().get("vector_client")
+```
+
+### Supported File Types
+
+The DocumentProcessor supports multiple file types:
+- `.txt` - Plain text files
+- `.md`, `.markdown` - Markdown files  
+- `.py` - Python source files
+- `.json` - JSON files
+- `.js`, `.ts` - JavaScript/TypeScript files
+- `.css`, `.html`, `.xml` - Web files
+- `.yml`, `.yaml`, `.toml`, `.ini` - Configuration files
+- `.log` - Log files
+
 ## Current State
 
-The project has been initialized with:
-- Basic project structure and Python package setup
-- Milvus vector database configuration and connection management
-- Docker Compose setup for local Milvus deployment
-- Test scripts for validating the Milvus configuration
+The project has been implemented with:
+- **SOLID-compliant vector database client** with abstract interfaces
+- **Generic document processor** supporting 15+ file types
+- **Milvus vector database integration** with configuration management
+- **Embedding service abstraction** (sentence-transformers + mock for testing)
+- **Dependency injection container** for clean configuration management
+- **Environment-aware configuration** (test, dev, prod)
+- **Comprehensive test suite** for validation
+- **Docker Compose setup** for local Milvus deployment
+
+### Architecture Highlights
+
+- **Single Responsibility**: Each class has a focused purpose
+- **Open/Closed**: Easy to extend with new vector DBs or file processors
+- **Liskov Substitution**: Implementations are interchangeable via interfaces
+- **Interface Segregation**: Clean, minimal interfaces
+- **Dependency Inversion**: Depends on abstractions, not concretions
 
 ## Workflow
 

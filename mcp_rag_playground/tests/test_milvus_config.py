@@ -3,7 +3,7 @@
 Test script for Milvus configuration.
 """
 
-from mcp_rag_playground.milvus_config import MilvusConfig, get_connection, test_connection
+from mcp_rag_playground.config.milvus_config import MilvusConfig, test_connection
 
 
 def main():
