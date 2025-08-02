@@ -1,32 +1,82 @@
-Here's a practical RAG project that will give you solid hands-on experience:
+# MCP RAG Playground
 
-## Personal Knowledge Base Assistant
+A SOLID-compliant vector database client with RAG capabilities, featuring dependency injection and environment-aware configuration.
 
-Build a RAG system that can answer questions about your personal documents, notes, or a specific domain you're interested in.
+## Features
 
-### Core Components:
-1. **Document Processing**: Ingest PDFs, text files, or markdown documents
-2. **Vector Storage**: Use a simple vector database like Chroma or FAISS
-3. **Embedding Model**: Start with OpenAI embeddings or a local model like sentence-transformers
-4. **LLM Integration**: Use OpenAI API or a local model via Ollama
-5. **Query Interface**: Simple web interface with Streamlit or Gradio
+- **SOLID-compliant architecture** with abstract interfaces and dependency injection
+- **Multiple vector database support** (currently Milvus, easily extensible)
+- **Generic document processing** supporting 15+ file types
+- **Environment-aware configuration** (test, dev, prod)
+- **Comprehensive embedding service abstraction** (sentence-transformers + mock for testing)
+- **Dependency injection container** for clean service management
+- **Docker-based Milvus deployment** for local development
 
-### Sample Implementation Steps:
-1. Create a document chunking strategy (500-1000 tokens with overlap)
-2. Generate embeddings for each chunk
-3. Store in vector database with metadata
-4. Implement semantic search for retrieval
-5. Build prompt template that includes retrieved context
-6. Add citation/source tracking
+## Quick Start
 
-### Adding MCP (Model Context Protocol):
-Once you have the basic RAG working, integrate MCP to:
-- **File System Access**: Let the assistant read new documents directly from your file system
-- **Database Queries**: Connect to external databases for real-time data
-- **Web Search**: Augment your knowledge base with current information
-- **Calendar/Email**: Access personal productivity data
+### Using Dependency Injection (Recommended)
 
-### Suggested Domain:
-Start with something you know well - your own notes, a hobby, or work documents. This makes it easier to evaluate if the responses are accurate.
+```python
+from mcp_rag_playground import create_vector_client
 
-Would you like me to elaborate on any specific part of this project or help you get started with the implementation?
+# Create a client for development environment
+client = create_vector_client("dev")
+
+# Upload a file
+success = client.upload("path/to/document.txt")
+
+# Query for similar content
+results = client.query("your search query", limit=5)
+for result in results:
+    print(f"Score: {result.score}")
+    print(f"Content: {result.document.content}")
+```
+
+### Environment-Specific Usage
+
+```python
+from mcp_rag_playground import create_test_container, create_prod_container
+
+# Test environment (uses mock services)
+test_client = create_test_container().get("vector_client")
+
+# Production environment (uses real services)
+prod_client = create_prod_container().get("vector_client")
+```
+
+## Installation
+
+1. Clone the repository
+2. Install dependencies: `pip install -r requirements.txt`
+3. Start Milvus: `cd vectordb/milvus && docker-compose up -d`
+4. Run tests: `python -m mcp_rag_playground.tests.test_vector_client`
+
+## Supported File Types
+
+- `.txt` - Plain text files
+- `.md`, `.markdown` - Markdown files  
+- `.py` - Python source files
+- `.json` - JSON files
+- `.js`, `.ts` - JavaScript/TypeScript files
+- `.css`, `.html`, `.xml` - Web files
+- `.yml`, `.yaml`, `.toml`, `.ini` - Configuration files
+- `.log` - Log files
+
+## Architecture
+
+The project follows SOLID principles with:
+
+- **Single Responsibility**: Each class has a focused purpose
+- **Open/Closed**: Easy to extend with new vector DBs or file processors
+- **Liskov Substitution**: Implementations are interchangeable via interfaces
+- **Interface Segregation**: Clean, minimal interfaces
+- **Dependency Inversion**: Depends on abstractions, not concretions
+
+## MCP Integration Opportunities
+
+This foundation supports future MCP (Model Context Protocol) integration:
+
+- **File System Access**: Direct document ingestion from file system
+- **Database Queries**: Real-time data retrieval and indexing
+- **Web Search**: Knowledge base augmentation with current information
+- **External APIs**: Integration with productivity tools and services
