@@ -18,7 +18,7 @@ from mcp_rag_playground.vectordb.vector_db_interface import Document
 class DocumentProcessor:
     """Handles document processing for vector database ingestion."""
     
-    def __init__(self, chunk_size: int = 1000, overlap: int = 100, 
+    def __init__(self, chunk_size: int = 800, overlap: int = 200, 
                  custom_processors: Optional[Dict[str, FileProcessor]] = None):
         self.chunk_size = chunk_size
         self.overlap = overlap

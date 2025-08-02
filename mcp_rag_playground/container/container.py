@@ -37,6 +37,7 @@ class Container:
         self._services: Dict[str, ServiceRegistration] = {}
         self._config_registry = ConfigRegistry()
         self._building_services: set[str] = set()  # Track circular dependencies
+        print(f"🚀 DI Container: Initialized for environment '{environment}'")
     
     def register_config_provider(self, provider: ConfigProvider) -> 'Container':
         """
@@ -70,6 +71,8 @@ class Container:
         """
         registration = ServiceRegistration(factory, scope, dependencies)
         self._services[name] = registration
+        deps_str = f" with dependencies: {dependencies}" if dependencies else ""
+        print(f"📝 DI Container: Registered '{name}' as {scope.value}{deps_str}")
         return self
     
     def register_singleton(self, name: str, factory: Callable[[], T]) -> 'Container':
@@ -88,6 +91,7 @@ class Container:
         registration = ServiceRegistration(factory, ServiceScope.SINGLETON)
         registration.instance = instance
         self._services[name] = registration
+        print(f"📋 DI Container: Registered pre-created instance '{name}' ({type(instance).__name__})")
         return self
     
     def get(self, service_name: str) -> Any:
@@ -115,6 +119,7 @@ class Container:
         
         # Return singleton instance if already created
         if registration.scope == ServiceScope.SINGLETON and registration.instance is not None:
+            print(f"🔄 DI Container: Returning cached singleton {type(registration.instance).__name__}")
             return registration.instance
         
         # Build dependencies first
@@ -127,6 +132,7 @@ class Container:
         # Cache singleton instances
         if registration.scope == ServiceScope.SINGLETON:
             registration.instance = instance
+            print(f"💾 DI Container: Cached {type(instance).__name__} as singleton")
         
         return instance
     
@@ -160,7 +166,9 @@ class Container:
         """Build a service instance, resolving dependencies."""
         # No dependencies, just call factory
         if not registration.dependencies:
-            return registration.factory()
+            instance = registration.factory()
+            print(f"🏭 DI Container: Created {type(instance).__name__} (no dependencies)")
+            return instance
         
         # Resolve dependencies and inject them
         dependencies = {}
@@ -171,10 +179,14 @@ class Container:
         # Note: This assumes factory can accept dependencies as keyword arguments
         # For more complex scenarios, we might need a different approach
         try:
-            return registration.factory(**dependencies)
+            instance = registration.factory(**dependencies)
+            print(f"🏭 DI Container: Created {type(instance).__name__} with dependencies: {list(dependencies.keys())}")
+            return instance
         except TypeError:
             # Fallback: call factory without arguments
-            return registration.factory()
+            instance = registration.factory()
+            print(f"🏭 DI Container: Created {type(instance).__name__} (fallback, no dependency injection)")
+            return instance
     
     def list_services(self) -> list[str]:
         """Get list of registered service names."""

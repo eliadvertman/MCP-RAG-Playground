@@ -94,11 +94,14 @@ client = create_vector_client("dev")
 # Upload a file
 success = client.upload("path/to/document.txt")
 
-# Query for similar content
-results = client.query("your search query", limit=5)
+# Query for similar content with score filtering
+results = client.query("your search query", limit=5, min_score=0.75)
 for result in results:
     print(f"Score: {result.score}")
     print(f"Content: {result.document.content}")
+
+# Query preprocessing handles abbreviations automatically
+results = client.query("vector db search")  # Expands "db" to "database"
 ```
 
 #### Manual Construction (Advanced)
@@ -144,13 +147,27 @@ The DocumentProcessor supports multiple file types:
 
 The project has been implemented with:
 - **SOLID-compliant vector database client** with abstract interfaces
-- **Generic document processor** supporting 15+ file types
+- **Enhanced search accuracy** with score filtering and query preprocessing
+- **Generic document processor** supporting 15+ file types with optimized chunking
 - **Milvus vector database integration** with configuration management
 - **Embedding service abstraction** (sentence-transformers + mock for testing)
-- **Dependency injection container** for clean configuration management
+- **Dependency injection container** with comprehensive debugging support
 - **Environment-aware configuration** (test, dev, prod)
 - **Comprehensive test suite** for validation
 - **Docker Compose setup** for local Milvus deployment
+
+### Recent Enhancements (Latest)
+
+- **Search Accuracy Improvements**:
+  - Score threshold filtering (`min_score` parameter) to filter low-quality results
+  - Query preprocessing with abbreviation expansion (db→database, ai→artificial intelligence)
+  - Optimized chunking strategy (800 chars with 200 char overlap)
+  - Enhanced test coverage for search quality validation
+
+- **Dependency Injection Debugging**:
+  - Comprehensive logging for service registration and instantiation
+  - Instance lifecycle tracking (creation, caching, reuse)
+  - Dependency resolution visibility with detailed debug output
 
 ### Architecture Highlights
 

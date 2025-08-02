@@ -3,6 +3,7 @@ Main vector database client with upload and query capabilities.
 """
 
 from typing import List, Dict, Any
+import re
 from .vector_db_interface import VectorDBInterface, SearchResult
 from .embedding_service import EmbeddingService
 from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
@@ -74,21 +75,56 @@ class VectorClient:
             print(f"Error uploading file {file_path}: {e}")
             return False
     
-    def query(self, query_text: str, limit: int = 5) -> List[SearchResult]:
+    def _preprocess_query(self, query_text: str) -> str:
+        """Preprocess query text for better search results."""
+        # Remove extra whitespace
+        query = re.sub(r'\s+', ' ', query_text.strip())
+        
+        # Convert to lowercase for consistency
+        query = query.lower()
+        
+        # Remove special characters that might interfere with search
+        query = re.sub(r'[^\w\s\-\']', ' ', query)
+        
+        # Handle common abbreviations and expansions
+        expansions = {
+            'db': 'database',
+            'ai': 'artificial intelligence',
+            'ml': 'machine learning',
+            'api': 'application programming interface',
+            'ui': 'user interface',
+            'ux': 'user experience'
+        }
+        
+        words = query.split()
+        expanded_words = []
+        for word in words:
+            if word in expansions:
+                expanded_words.extend([word, expansions[word]])
+            else:
+                expanded_words.append(word)
+        
+        return ' '.join(expanded_words)
+
+    def query(self, query_text: str, limit: int = 5, min_score: float = 0.0) -> List[SearchResult]:
         """
         Query the vector database for similar documents.
         
         Args:
             query_text: Text to search for
             limit: Maximum number of results to return
+            min_score: Minimum similarity score threshold (0.0-1.0)
             
         Returns:
-            List[SearchResult]: List of search results
+            List[SearchResult]: List of search results filtered by score
         """
         try:
             self._ensure_collection_exists()
             
-            query_embedding = self.embedding_service.embed_text(query_text)
+            # Preprocess query for better results
+            processed_query = self._preprocess_query(query_text)
+            
+            query_embedding = self.embedding_service.embed_text(processed_query)
             
             results = self.vector_db.search(
                 self.collection_name,
@@ -96,7 +132,10 @@ class VectorClient:
                 limit
             )
             
-            return results
+            # Filter results by minimum score threshold
+            filtered_results = [result for result in results if result.score >= min_score]
+            
+            return filtered_results
             
         except Exception as e:
             print(f"Error querying database: {e}")

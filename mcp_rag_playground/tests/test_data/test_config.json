@@ -1,14 +1,14 @@
 {
     "test_queries": [
-        "vector database",
+        "vector db",
         "Python programming", 
         "hello world",
         "markdown document"
     ],
     "milvus_test_queries": [
-        "vector database",
-        "Python class",
-        "greeting message"
+        "vector db",
+        "hello_world",
+        "Section 1"
     ],
     "embedding_dimension": 384,
     "chunk_size": 1000,

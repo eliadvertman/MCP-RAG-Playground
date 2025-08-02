@@ -126,7 +126,7 @@ def create_mock_vector_client(collection_name: str = "test_collection") -> Vecto
     Returns:
         VectorClient with mock embedding service
     """
-    return create_vector_client("test", collection_name)
+    return create_vector_client("dev", collection_name)
 
 
 # Convenience functions for specific services

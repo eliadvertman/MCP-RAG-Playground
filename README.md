@@ -1,15 +1,16 @@
 # MCP RAG Playground
 
-A SOLID-compliant vector database client with RAG capabilities, featuring dependency injection and environment-aware configuration.
+A SOLID-compliant vector database client with RAG capabilities, featuring enhanced search accuracy, dependency injection and environment-aware configuration.
 
 ## Features
 
 - **SOLID-compliant architecture** with abstract interfaces and dependency injection
+- **Enhanced search accuracy** with score filtering and query preprocessing
 - **Multiple vector database support** (currently Milvus, easily extensible)
-- **Generic document processing** supporting 15+ file types
+- **Intelligent document processing** supporting 15+ file types with optimized chunking
 - **Environment-aware configuration** (test, dev, prod)
 - **Comprehensive embedding service abstraction** (sentence-transformers + mock for testing)
-- **Dependency injection container** for clean service management
+- **Dependency injection container** with debugging support for clean service management
 - **Docker-based Milvus deployment** for local development
 
 ## Quick Start
@@ -25,11 +26,14 @@ client = create_vector_client("dev")
 # Upload a file
 success = client.upload("path/to/document.txt")
 
-# Query for similar content
-results = client.query("your search query", limit=5)
+# Query for similar content with quality filtering
+results = client.query("your search query", limit=5, min_score=0.75)
 for result in results:
     print(f"Score: {result.score}")
     print(f"Content: {result.document.content}")
+
+# Query preprocessing handles abbreviations automatically
+results = client.query("vector db")  # Expands to "vector database"
 ```
 
 ### Environment-Specific Usage
@@ -71,6 +75,26 @@ The project follows SOLID principles with:
 - **Liskov Substitution**: Implementations are interchangeable via interfaces
 - **Interface Segregation**: Clean, minimal interfaces
 - **Dependency Inversion**: Depends on abstractions, not concretions
+
+## Search Quality Features
+
+### Score Filtering
+Filter results by similarity score to ensure quality:
+```python
+# Only return highly relevant results (recommended: 0.7-0.8)
+results = client.query("search term", min_score=0.75)
+```
+
+### Query Preprocessing
+Automatic query enhancement for better results:
+- **Abbreviation expansion**: `db` → `database`, `ai` → `artificial intelligence`
+- **Normalization**: Whitespace cleanup and lowercasing
+- **Special character handling**: Removes noise that interferes with search
+
+### Optimized Chunking
+- **Chunk size**: 800 characters (optimal for semantic coherence)
+- **Overlap**: 200 characters (ensures context preservation)
+- **Smart boundaries**: Splits at paragraphs, sentences, or word boundaries
 
 ## MCP Integration Opportunities
 
