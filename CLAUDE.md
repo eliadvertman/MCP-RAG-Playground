@@ -26,7 +26,9 @@ This is a Python project called "mcp_rag_playground" set up as an IntelliJ IDEA 
     - `factory.py` - Convenience factory methods
   - `tests/` - Test suite with dedicated test data
     - `test_vector_client.py` - Comprehensive test script for vector client
-    - `test_milvus_config.py` - Test script for Milvus configuration
+    - `test_milvus_config.py` - Test script for Milvus configuration  
+    - `test_milvus_func.py` - End-to-end Milvus functionality tests
+    - `test_utils.py` - Shared test utilities and helper functions
     - `test_data/` - Dedicated test data files
       - `test_document.md` - Markdown test content
       - `test_document.txt` - Plain text test content
@@ -168,6 +170,12 @@ The project has been implemented with:
   - Comprehensive logging for service registration and instantiation
   - Instance lifecycle tracking (creation, caching, reuse)
   - Dependency resolution visibility with detailed debug output
+
+- **Test Infrastructure Improvements**:
+  - Modular test organization with extracted utility functions
+  - Shared test helpers in `test_utils.py` for better code reuse
+  - Dedicated end-to-end tests in `test_milvus_func.py`
+  - Improved test maintainability and reduced code duplication
 
 ### Architecture Highlights
 
