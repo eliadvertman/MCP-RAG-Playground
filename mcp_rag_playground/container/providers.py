@@ -218,3 +218,47 @@ class RagAPIConfigProvider(ConfigProvider):
                 "default_limit": 10,
                 "default_min_score": 0.0
             }
+
+
+class MCPServerConfigProvider(ConfigProvider):
+    """Configuration provider for MCP Server settings."""
+    
+    def get_config_name(self) -> str:
+        """Get the name of this configuration provider."""
+        return "mcp_server"
+    
+    def get_config(self, environment: str = "default") -> dict:
+        """
+        Get MCP Server configuration for the specified environment.
+        
+        Args:
+            environment: The environment name
+            
+        Returns:
+            Configuration dictionary
+        """
+        if environment == "test":
+            return {
+                "server_name": "Test RAG Knowledge Base",
+                "collection_name": "test_mcp_rag_collection",
+                "use_mock_services": True
+            }
+        elif environment == "dev":
+            return {
+                "server_name": "Dev RAG Knowledge Base", 
+                "collection_name": "dev_mcp_rag_collection",
+                "use_mock_services": False
+            }
+        elif environment == "prod":
+            return {
+                "server_name": "RAG Knowledge Base",
+                "collection_name": "prod_mcp_rag_collection", 
+                "use_mock_services": False
+            }
+        else:
+            # Default configuration
+            return {
+                "server_name": "RAG Knowledge Base",
+                "collection_name": "mcp_rag_collection",
+                "use_mock_services": False
+            }

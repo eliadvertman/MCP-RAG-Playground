@@ -11,6 +11,9 @@ from pathlib import Path
 
 from mcp_rag_playground.vectordb.vector_client import VectorClient
 from mcp_rag_playground.vectordb.vector_db_interface import SearchResult
+from mcp_rag_playground.config.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class RagAPI:
@@ -33,6 +36,7 @@ class RagAPI:
         self.collection_name = collection_name
         # Update the vector client's collection name
         self.vector_client.collection_name = collection_name
+        logger.info(f"RagAPI initialized with collection: {collection_name}")
     
     def add_document(self, file_path: str) -> bool:
         """
@@ -45,10 +49,16 @@ class RagAPI:
             bool: True if upload successful, False otherwise
         """
         try:
+            logger.info(f"Adding document from file: {file_path}")
             result = self._add_file(file_path)
-            return result["success"]
+            success = result["success"]
+            if success:
+                logger.info(f"Successfully added document: {file_path}")
+            else:
+                logger.error(f"Failed to add document: {file_path}")
+            return success
         except Exception as e:
-            print(f"Error adding document {file_path}: {e}")
+            logger.error(f"Error adding document {file_path}: {e}")
             return False
 
     def _add_file(self, file_path: str) -> Dict[str, Any]:
@@ -104,13 +114,16 @@ class RagAPI:
             results = api.query("Python programming", limit=10, min_score=0.7)
             
             for result in results:
-                print(f"Score: {result['score']}")
-                print(f"Content: {result['content']}")
+                # Example output format (for documentation only):
+                # print(f"Score: {result['score']}")
+                # print(f"Content: {result['content']}")
         """
         if not question or not question.strip():
+            logger.warning("Empty query provided to RAG API")
             return []
         
         try:
+            logger.info(f"RAG API query: '{question}' (limit: {limit}, min_score: {min_score})")
             # Use vector client's enhanced query method
             search_results: List[SearchResult] = self.vector_client.query(
                 question.strip(), 
@@ -141,11 +154,11 @@ class RagAPI:
                 
                 formatted_results.append(formatted_result)
             
+            logger.info(f"RAG API query completed: {len(formatted_results)} results returned")
             return formatted_results
             
         except Exception as e:
-            # Log error but return empty list to maintain API contract
-            print(f"Error during query: {e}")
+            logger.error(f"Error during RAG API query: {e}")
             return []
     
     def get_collection_info(self) -> Dict[str, Any]:
@@ -156,6 +169,7 @@ class RagAPI:
             Dict containing collection statistics and metadata
         """
         try:
+            logger.debug(f"Getting collection info for: {self.collection_name}")
             info = self.vector_client.get_collection_info()
             
             # Enhance with RAG-specific information
@@ -180,6 +194,7 @@ class RagAPI:
             return enhanced_info
             
         except Exception as e:
+            logger.error(f"Error getting collection info: {e}")
             return {
                 "collection_name": self.collection_name,
                 "status": "error",
@@ -195,7 +210,13 @@ class RagAPI:
             bool: True if deletion successful, False otherwise
         """
         try:
-            return self.vector_client.delete_collection()
+            logger.warning(f"Deleting collection: {self.collection_name}")
+            result = self.vector_client.delete_collection()
+            if result:
+                logger.info(f"Successfully deleted collection: {self.collection_name}")
+            else:
+                logger.error(f"Failed to delete collection: {self.collection_name}")
+            return result
         except Exception as e:
-            print(f"Error deleting collection: {e}")
+            logger.error(f"Error deleting collection: {e}")
             return False

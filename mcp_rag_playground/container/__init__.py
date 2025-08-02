@@ -13,7 +13,9 @@ from .factory import (
     create_dev_container,
     create_prod_container,
     create_rag_api,
-    create_mock_rag_api
+    create_mock_rag_api,
+    create_rag_mcp_server,
+    create_mock_rag_mcp_server
 )
 
 __all__ = [
@@ -27,5 +29,7 @@ __all__ = [
     'create_dev_container',
     'create_prod_container',
     'create_rag_api',
-    'create_mock_rag_api'
+    'create_mock_rag_api',
+    'create_rag_mcp_server',
+    'create_mock_rag_mcp_server'
 ]

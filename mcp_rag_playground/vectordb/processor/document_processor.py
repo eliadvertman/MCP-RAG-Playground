@@ -3,13 +3,15 @@ Document processing utilities for file upload and text chunking.
 """
 
 import os
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
 from pathlib import Path
+from typing import List, Dict, Any, Optional
 
+from mcp_rag_playground.config.logging_config import get_logger
 from mcp_rag_playground.vectordb.processor.file_processor import FileProcessor, TextFileProcessor, \
     MarkdownFileProcessor, PythonFileProcessor, JSONFileProcessor
 from mcp_rag_playground.vectordb.vector_db_interface import Document
+
+logger = get_logger(__name__)
 
 
 
@@ -47,6 +49,9 @@ class DocumentProcessor:
         # Add custom processors if provided
         if custom_processors:
             self.processors.update(custom_processors)
+        
+        logger.info(f"DocumentProcessor initialized with chunk_size={chunk_size}, overlap={overlap}")
+        logger.debug(f"Registered processors for {len(self.processors)} file types")
     
     def register_processor(self, extension: str, processor: FileProcessor):
         """Register a custom processor for a file extension."""
@@ -60,14 +65,20 @@ class DocumentProcessor:
     
     def process_file(self, file_path: str) -> List[Document]:
         """Process a file and return chunked documents."""
+        logger.info(f"Processing file: {file_path}")
+        
         if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
+            error_msg = f"File not found: {file_path}"
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
         
         file_extension = Path(file_path).suffix.lower()
+        logger.debug(f"File extension: {file_extension}")
         
         if file_extension not in self.processors:
-            raise ValueError(f"Unsupported file type: {file_extension}. "
-                           f"Supported types: {', '.join(self.processors.keys())}")
+            error_msg = f"Unsupported file type: {file_extension}. Supported types: {', '.join(self.processors.keys())}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         
         processor = self.processors[file_extension]
         
@@ -76,15 +87,22 @@ class DocumentProcessor:
             metadata = processor.get_metadata(file_path)
             metadata['source'] = file_path
             
-            return self._chunk_text(content, metadata)
+            documents = self._chunk_text(content, metadata)
+            logger.info(f"Successfully processed {file_path}: {len(documents)} chunks created")
+            return documents
         
         except Exception as e:
-            raise RuntimeError(f"Error processing file {file_path}: {e}")
+            error_msg = f"Error processing file {file_path}: {e}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
     
     def process_text(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> List[Document]:
         """Process raw text and return chunked documents."""
+        logger.debug(f"Processing raw text: {len(text)} characters")
         base_metadata = metadata or {}
-        return self._chunk_text(text, base_metadata)
+        documents = self._chunk_text(text, base_metadata)
+        logger.debug(f"Text processing complete: {len(documents)} chunks created")
+        return documents
     
     def _chunk_text(self, text: str, base_metadata: Dict[str, Any]) -> List[Document]:
         """Split text into overlapping chunks with smart boundary detection."""

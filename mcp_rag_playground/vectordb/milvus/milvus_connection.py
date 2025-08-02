@@ -18,7 +18,7 @@ class MilvusConnection:
             connection_params = self.config.to_connection_params()
             connections.connect(alias="default", **connection_params)
             self._connection = connections
-            print(f"Connected to Milvus at {self.config.host}:{self.config.port}")
+            # Note: Connection successful but avoiding stdout print to prevent MCP JSON interference
 
         except ImportError:
             raise ImportError("pymilvus is required. Install it with: pip install pymilvus")
@@ -30,7 +30,7 @@ class MilvusConnection:
         if self._connection:
             self._connection.disconnect(alias="default")
             self._connection = None
-            print("Disconnected from Milvus")
+            # Note: Disconnection successful but avoiding stdout print to prevent MCP JSON interference
 
     def is_connected(self) -> bool:
         """Check if connected to Milvus."""

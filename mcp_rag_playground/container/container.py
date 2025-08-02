@@ -5,6 +5,9 @@ Main dependency injection container implementation.
 from typing import Any, Callable, Dict, Optional, TypeVar, Type
 from enum import Enum
 from .config import ConfigRegistry, ConfigProvider
+from mcp_rag_playground.config.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 T = TypeVar('T')
 
@@ -32,12 +35,15 @@ class ServiceRegistration:
 class Container:
     """Dependency injection container."""
     
-    def __init__(self, environment: str = "default"):
+    def __init__(self, environment: str = "default", debug: bool = True):
         self.environment = environment
+        self.debug = debug
         self._services: Dict[str, ServiceRegistration] = {}
         self._config_registry = ConfigRegistry()
         self._building_services: set[str] = set()  # Track circular dependencies
-        print(f"🚀 DI Container: Initialized for environment '{environment}'")
+        logger.info(f"DI Container: Initialized for environment '{environment}'")
+        if self.debug:
+            logger.debug(f"DI Container: Debug mode enabled")
     
     def register_config_provider(self, provider: ConfigProvider) -> 'Container':
         """
@@ -72,7 +78,7 @@ class Container:
         registration = ServiceRegistration(factory, scope, dependencies)
         self._services[name] = registration
         deps_str = f" with dependencies: {dependencies}" if dependencies else ""
-        print(f"📝 DI Container: Registered '{name}' as {scope.value}{deps_str}")
+        logger.info(f"DI Container: Registered '{name}' as {scope.value}{deps_str}")
         return self
     
     def register_singleton(self, name: str, factory: Callable[[], T]) -> 'Container':
@@ -91,7 +97,7 @@ class Container:
         registration = ServiceRegistration(factory, ServiceScope.SINGLETON)
         registration.instance = instance
         self._services[name] = registration
-        print(f"📋 DI Container: Registered pre-created instance '{name}' ({type(instance).__name__})")
+        logger.info(f"DI Container: Registered pre-created instance '{name}' ({type(instance).__name__})")
         return self
     
     def get(self, service_name: str) -> Any:
@@ -109,17 +115,21 @@ class Container:
             RuntimeError: If circular dependency detected
         """
         if service_name not in self._services:
-            raise KeyError(f"Service '{service_name}' not registered")
+            error_msg = f"Service '{service_name}' not registered"
+            logger.error(error_msg)
+            raise KeyError(error_msg)
         
         # Check for circular dependencies
         if service_name in self._building_services:
-            raise RuntimeError(f"Circular dependency detected for service '{service_name}'")
+            error_msg = f"Circular dependency detected for service '{service_name}'"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
         
         registration = self._services[service_name]
         
         # Return singleton instance if already created
         if registration.scope == ServiceScope.SINGLETON and registration.instance is not None:
-            print(f"🔄 DI Container: Returning cached singleton {type(registration.instance).__name__}")
+            logger.debug(f"DI Container: Returning cached singleton {type(registration.instance).__name__}")
             return registration.instance
         
         # Build dependencies first
@@ -132,7 +142,7 @@ class Container:
         # Cache singleton instances
         if registration.scope == ServiceScope.SINGLETON:
             registration.instance = instance
-            print(f"💾 DI Container: Cached {type(instance).__name__} as singleton")
+            logger.debug(f"DI Container: Cached {type(instance).__name__} as singleton")
         
         return instance
     
@@ -167,7 +177,7 @@ class Container:
         # No dependencies, just call factory
         if not registration.dependencies:
             instance = registration.factory()
-            print(f"🏭 DI Container: Created {type(instance).__name__} (no dependencies)")
+            logger.debug(f"DI Container: Created {type(instance).__name__} (no dependencies)")
             return instance
         
         # Resolve dependencies and inject them
@@ -180,12 +190,13 @@ class Container:
         # For more complex scenarios, we might need a different approach
         try:
             instance = registration.factory(**dependencies)
-            print(f"🏭 DI Container: Created {type(instance).__name__} with dependencies: {list(dependencies.keys())}")
+            logger.debug(f"DI Container: Created {type(instance).__name__} with dependencies: {list(dependencies.keys())}")
             return instance
-        except TypeError:
+        except TypeError as e:
             # Fallback: call factory without arguments
+            logger.warning(f"DI Container: Factory dependency injection failed for {registration.factory.__name__}: {e}")
             instance = registration.factory()
-            print(f"🏭 DI Container: Created {type(instance).__name__} (fallback, no dependency injection)")
+            logger.debug(f"DI Container: Created {type(instance).__name__} (fallback, no dependency injection)")
             return instance
     
     def list_services(self) -> list[str]:

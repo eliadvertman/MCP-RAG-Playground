@@ -1,11 +1,12 @@
 # MCP RAG Playground
 
-A SOLID-compliant vector database client with RAG capabilities, featuring enhanced search accuracy, dependency injection and environment-aware configuration.
+A SOLID-compliant vector database client with RAG capabilities and MCP server integration, featuring enhanced search accuracy, dependency injection and environment-aware configuration.
 
 ## Features
 
+- **MCP Server integration** - Model Context Protocol support for seamless LLM integration
 - **High-level RAG API** with simplified `add_documents` and `query` methods supporting mixed input types
-- **SOLID-compliant architecture** with abstract interfaces and dependency injection
+- **SOLID-compliant architecture** with abstract interfaces and dependency injection  
 - **Enhanced search accuracy** with score filtering and query preprocessing
 - **Multiple vector database support** (currently Milvus, easily extensible)
 - **Intelligent document processing** supporting 15+ file types with optimized chunking
@@ -73,6 +74,44 @@ for result in results:
     print(f"Content: {result.document.content}")
 ```
 
+### Using MCP Server (LLM Integration)
+
+```python
+from mcp_rag_playground import create_rag_mcp_server
+
+# Create MCP server for production use
+mcp_server = create_rag_mcp_server("prod", "knowledge_base")
+
+# Get FastMCP instance for integration
+server = mcp_server.get_server()
+
+# Available MCP tools:
+# - add_document_from_file(file_path)
+# - add_document_from_content(content, metadata)
+# - search_knowledge_base(query, limit, min_score)
+# - get_collection_info()
+# - delete_collection()
+```
+
+**Run MCP Server:**
+```bash
+# Development mode with inspector
+uv run mcp dev examples/mcp_server_example.py
+
+# Integration with Claude Desktop (mcp_servers.json)
+{
+  "mcpServers": {
+    "rag-kb": {
+      "command": "/absolute/path/to/venv/Scripts/python.exe",
+      "args": ["/absolute/path/to/examples/mcp_server_example.py"],
+      "env": {
+        "PYTHONPATH": "/absolute/path/to/project"
+      }
+    }
+  }
+}
+```
+
 ### Environment-Specific Usage
 
 ```python
@@ -89,9 +128,26 @@ prod_client = create_prod_container().get("vector_client")
 
 1. Clone the repository
 2. Install dependencies: `pip install -r requirements.txt`
-3. Start Milvus: `cd vectordb/milvus && docker-compose up -d`
-4. Run tests: `python -m mcp_rag_playground.tests.test_rag_api`
-5. Try the example: `python examples/rag_usage_example.py`
+3. Install MCP library: `pip install "mcp[cli]>=1.2.0"`
+4. Start Milvus: `cd vectordb/milvus && docker-compose up -d`
+5. Run tests: 
+   - RAG API: `python -m mcp_rag_playground.tests.test_rag_api`
+   - MCP Server: `python -m mcp_rag_playground.tests.test_mcp_server`
+6. Try the examples:
+   - RAG API: `python examples/rag_usage_example.py`
+   - MCP Server: `uv run mcp dev examples/mcp_server_example.py`
+
+## 🚀 MCP Server Deployment & Claude Desktop Integration
+
+For detailed instructions on deploying the MCP server locally and integrating it with Claude Desktop, see our comprehensive **[MCP Deployment Guide](docs/MCP_DEPLOYMENT_GUIDE.md)**.
+
+The guide covers:
+- **Local deployment** with step-by-step setup
+- **Claude Desktop integration** configuration
+- **Production deployment** with real vector database
+- **Troubleshooting** common issues
+- **Advanced configuration** and optimization
+- **Usage examples** and best practices
 
 ## Supported File Types
 

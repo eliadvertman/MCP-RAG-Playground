@@ -28,12 +28,14 @@ This is a Python project called "mcp_rag_playground" set up as an IntelliJ IDEA 
     - `rag_api.py` - Main RAG API with simplified add_documents and query methods
     - `__init__.py` - RAG module exports
   - `mcp/` - MCP (Model Context Protocol) integration
-    - `__init__.py` - MCP module placeholder
+    - `rag_server.py` - MCP server wrapping RAG API functionality
+    - `__init__.py` - MCP module exports
   - `tests/` - Test suite with dedicated test data
     - `test_vector_client.py` - Comprehensive test script for vector client
     - `test_milvus_config.py` - Test script for Milvus configuration  
     - `test_milvus_func.py` - End-to-end Milvus functionality tests
     - `test_rag_api.py` - RAG API functionality tests
+    - `test_mcp_server.py` - MCP server functionality tests
     - `test_utils.py` - Shared test utilities and helper functions
     - `test_data/` - Dedicated test data files
       - `test_document.md` - Markdown test content
@@ -42,6 +44,7 @@ This is a Python project called "mcp_rag_playground" set up as an IntelliJ IDEA 
       - `test_config.json` - Test configuration parameters
 - `examples/` - Usage examples and demonstration scripts
   - `rag_usage_example.py` - Comprehensive RAG API usage examples
+  - `mcp_server_example.py` - MCP server implementation and usage example
 - `vectordb/milvus/` - Milvus vector database Docker setup
 - `vectordb/milvus/docker-compose.yml` - Docker Compose configuration for running Milvus locally
 
@@ -56,6 +59,7 @@ This is a Python project called "mcp_rag_playground" set up as an IntelliJ IDEA 
 
 - `pymilvus>=2.4.0` - Python SDK for Milvus vector database
 - `sentence-transformers>=2.2.0` - Embedding models for text vectorization
+- `mcp[cli]>=1.2.0` - Model Context Protocol SDK for MCP server implementation
 
 ## Common Commands
 
@@ -98,6 +102,25 @@ To run the RAG API example:
 ```bash
 python examples/rag_usage_example.py
 ```
+
+To run the MCP server in development mode:
+```bash
+uv run mcp dev examples/mcp_server_example.py
+```
+
+To run the MCP server in production mode:
+```bash
+python examples/mcp_server_production.py
+```
+
+To test the MCP server:
+```bash
+python -m mcp_rag_playground.tests.test_mcp_server
+```
+
+## MCP Server Deployment
+
+For comprehensive deployment instructions including Claude Desktop integration, see the **[MCP Deployment Guide](docs/MCP_DEPLOYMENT_GUIDE.md)**.
 
 ## Usage Examples
 
@@ -202,6 +225,58 @@ test_client = create_test_container().get("vector_client")
 prod_client = create_prod_container().get("vector_client")
 ```
 
+### MCP Server Usage (Model Context Protocol Integration)
+
+#### Creating an MCP Server
+
+```python
+from mcp_rag_playground import create_rag_mcp_server, create_mock_rag_mcp_server
+
+# Create MCP server for development (uses mock services)
+mcp_server = create_mock_rag_mcp_server("demo_knowledge_base")
+
+# Create MCP server for production
+mcp_server = create_rag_mcp_server("prod", "production_knowledge_base")
+
+# Get the FastMCP instance for integration
+fastmcp_instance = mcp_server.get_server()
+```
+
+#### MCP Tools Available
+
+1. **add_document_from_file**: Add documents from file paths
+2. **add_document_from_content**: Add documents from raw content  
+3. **search_knowledge_base**: Search for relevant documents
+4. **get_collection_info**: Get knowledge base statistics
+5. **delete_collection**: Remove all documents (⚠️ destructive)
+
+#### MCP Resources Available
+
+1. **rag://collection/info**: Collection information
+2. **rag://search/{query}**: Search results for a query
+
+#### MCP Prompts Available
+
+1. **rag_search_prompt**: Generate context-aware prompts for Q&A
+
+#### Running the MCP Server
+
+```bash
+# Development mode with MCP inspector
+uv run mcp dev examples/mcp_server_example.py
+
+# Use with Claude Desktop (add to configuration)
+# ~/.config/claude-desktop/mcp_servers.json:
+{
+  "mcpServers": {
+    "rag-knowledge-base": {
+      "command": "uv",
+      "args": ["run", "mcp", "dev", "/path/to/examples/mcp_server_example.py"]
+    }
+  }
+}
+```
+
 ### Supported File Types
 
 The DocumentProcessor supports multiple file types:
@@ -217,6 +292,7 @@ The DocumentProcessor supports multiple file types:
 ## Current State
 
 The project has been implemented with:
+- **MCP Server integration** with Model Context Protocol support for LLM integration
 - **High-level RAG API** with simplified document ingestion and querying interface
 - **SOLID-compliant vector database client** with abstract interfaces
 - **Enhanced search accuracy** with score filtering and query preprocessing
@@ -231,6 +307,15 @@ The project has been implemented with:
 
 ### Recent Enhancements (Latest)
 
+- **MCP Server Integration**:
+  - Complete `RagMCPServer` implementation wrapping RAG API functionality
+  - 5 MCP tools: document addition (file/content), search, collection info, deletion
+  - 2 MCP resources: collection info and search results access
+  - 1 MCP prompt: context-aware RAG question answering
+  - Factory functions `create_rag_mcp_server()` and `create_mock_rag_mcp_server()`
+  - MCP server example and comprehensive test coverage
+  - **Claude Desktop Configuration**: Updated deployment guide for proper virtual environment usage
+
 - **High-Level RAG API**:
   - Simplified `RagAPI` class with user-friendly `add_documents` and `query` methods
   - Support for mixed document input (files, raw content, or both)
@@ -240,8 +325,9 @@ The project has been implemented with:
 
 - **Examples and Documentation**:
   - Comprehensive usage examples in `examples/rag_usage_example.py`
-  - Step-by-step demonstrations of all RAG API features
-  - Test coverage for RAG API functionality in `test_rag_api.py`
+  - MCP server example with development and production configurations
+  - Step-by-step demonstrations of all RAG API and MCP features
+  - Test coverage for RAG API and MCP server functionality
   - Updated documentation with new patterns and usage
 
 - **Search Accuracy Improvements**:
@@ -275,8 +361,8 @@ The project has been implemented with:
 2. The plan should have a list of todo items that you can check off as you complete them
 3. Before you begin working, check in with me and I will verify the plan.
 4. Then, begin working on the todo items, marking them as complete as you go.
-5. Every step of the way just give me a high level explanation of what changes you made
+5. Every step of the way just give me a high level explanation of what changes you made.
 6. Make every task and code change you do as simple as possible. We want to avoid making any massive or complex changes. Every change should impact as little code as possible. Everything is about simplicity.
 7. Make sure to not create large Python files. Follow SOLID principles to break big components into smaller ones.
-8. Once finished, add the new files to git staging
+8. Once finished, add the generated files to git staging.
 9. Finally, add a review section to the todo.md file with a summary of the changes you made and any other relevant information.

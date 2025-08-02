@@ -9,6 +9,14 @@ from mcp_rag_playground.config.milvus_config import MilvusConfig
 from .vectordb.vector_db_interface import Document, SearchResult
 from mcp_rag_playground.rag.rag_api import RagAPI
 
+# MCP Server imports (conditional)
+try:
+    from .mcp import RagMCPServer
+    _MCP_AVAILABLE = True
+except ImportError:
+    _MCP_AVAILABLE = False
+    RagMCPServer = None
+
 # Dependency injection imports
 from .container import (
     Container,
@@ -21,9 +29,12 @@ from .container import (
     create_dev_container,
     create_prod_container,
     create_rag_api,
-    create_mock_rag_api
+    create_mock_rag_api,
+    create_rag_mcp_server,
+    create_mock_rag_mcp_server
 )
 
+# Build __all__ list dynamically based on what's available
 __all__ = [
     # Core classes
     'VectorClient',
@@ -46,5 +57,11 @@ __all__ = [
     'create_dev_container',
     'create_prod_container',
     'create_rag_api',
-    'create_mock_rag_api'
+    'create_mock_rag_api',
+    'create_rag_mcp_server',
+    'create_mock_rag_mcp_server'
 ]
+
+# Add MCP Server class if available
+if _MCP_AVAILABLE:
+    __all__.append('RagMCPServer')

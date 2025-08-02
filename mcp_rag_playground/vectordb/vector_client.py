@@ -7,6 +7,9 @@ import re
 from .vector_db_interface import VectorDBInterface, SearchResult
 from .embedding_service import EmbeddingService
 from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
+from mcp_rag_playground.config.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class VectorClient:
@@ -23,16 +26,24 @@ class VectorClient:
         self.collection_name = collection_name
         self.document_processor = document_processor
         self._initialized = False
+        logger.info(f"VectorClient initialized with collection: {collection_name}")
     
     def _ensure_collection_exists(self):
         """Ensure the collection exists, create if not."""
         if not self._initialized:
             dimension = self.embedding_service.get_dimension()
+            logger.debug(f"Ensuring collection exists: {self.collection_name} (dimension: {dimension})")
             
             if not self.vector_db.collection_exists(self.collection_name):
+                logger.info(f"Creating new collection: {self.collection_name}")
                 success = self.vector_db.create_collection(self.collection_name, dimension)
                 if not success:
-                    raise RuntimeError(f"Failed to create collection: {self.collection_name}")
+                    error_msg = f"Failed to create collection: {self.collection_name}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
+                logger.info(f"Successfully created collection: {self.collection_name}")
+            else:
+                logger.debug(f"Collection already exists: {self.collection_name}")
             
             self._initialized = True
     
@@ -47,14 +58,16 @@ class VectorClient:
             bool: True if upload successful, False otherwise
         """
         try:
+            logger.info(f"Starting upload of file: {file_path}")
             self._ensure_collection_exists()
             
             documents = self.document_processor.process_file(file_path)
             
             if not documents:
-                print(f"No documents extracted from file: {file_path}")
+                logger.warning(f"No documents extracted from file: {file_path}")
                 return False
             
+            logger.debug(f"Extracted {len(documents)} documents from {file_path}")
             texts = [doc.content for doc in documents]
             embeddings = self.embedding_service.embed_texts(texts)
             
@@ -65,14 +78,14 @@ class VectorClient:
             )
             
             if success:
-                print(f"Successfully uploaded {len(documents)} document chunks from {file_path}")
+                logger.info(f"Successfully uploaded {len(documents)} documents from {file_path}")
             else:
-                print(f"Failed to upload file: {file_path}")
+                logger.error(f"Failed to upload file: {file_path}")
             
             return success
             
         except Exception as e:
-            print(f"Error uploading file {file_path}: {e}")
+            logger.error(f"Error uploading file {file_path}: {e}")
             return False
     
     
@@ -120,10 +133,12 @@ class VectorClient:
             List[SearchResult]: List of search results filtered by score
         """
         try:
+            logger.info(f"Starting query: '{query_text}' (limit: {limit}, min_score: {min_score})")
             self._ensure_collection_exists()
             
             # Preprocess query for better results
             processed_query = self._preprocess_query(query_text)
+            logger.debug(f"Preprocessed query: '{processed_query}'")
             
             query_embedding = self.embedding_service.embed_text(processed_query)
             
@@ -136,29 +151,36 @@ class VectorClient:
             # Filter results by minimum score threshold
             filtered_results = [result for result in results if result.score >= min_score]
             
+            logger.info(f"Query completed: found {len(results)} results, {len(filtered_results)} after filtering")
             return filtered_results
             
         except Exception as e:
-            print(f"Error querying database: {e}")
+            logger.error(f"Error querying database: {e}")
             return []
     
     def get_collection_info(self) -> Dict[str, Any]:
         """Get information about the current collection."""
         try:
+            logger.debug(f"Getting collection info for: {self.collection_name}")
             self._ensure_collection_exists()
-            return self.vector_db.get_collection_info(self.collection_name)
+            info = self.vector_db.get_collection_info(self.collection_name)
+            logger.debug(f"Collection info retrieved: {info}")
+            return info
         except Exception as e:
-            print(f"Error getting collection info: {e}")
+            logger.error(f"Error getting collection info: {e}")
             return {}
     
     def delete_collection(self) -> bool:
         """Delete the current collection."""
         try:
+            logger.warning(f"Deleting collection: {self.collection_name}")
             success = self.vector_db.delete_collection(self.collection_name)
             if success:
                 self._initialized = False
-                print(f"Successfully deleted collection: {self.collection_name}")
+                logger.info(f"Successfully deleted collection: {self.collection_name}")
+            else:
+                logger.error(f"Failed to delete collection: {self.collection_name}")
             return success
         except Exception as e:
-            print(f"Error deleting collection: {e}")
+            logger.error(f"Error deleting collection: {e}")
             return False
