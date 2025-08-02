@@ -11,7 +11,9 @@ from .factory import (
     create_mock_vector_client,
     create_test_container,
     create_dev_container,
-    create_prod_container
+    create_prod_container,
+    create_rag_api,
+    create_mock_rag_api
 )
 
 __all__ = [
@@ -23,5 +25,7 @@ __all__ = [
     'create_mock_vector_client',
     'create_test_container',
     'create_dev_container',
-    'create_prod_container'
+    'create_prod_container',
+    'create_rag_api',
+    'create_mock_rag_api'
 ]

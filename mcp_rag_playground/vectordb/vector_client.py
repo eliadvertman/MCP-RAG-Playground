@@ -75,6 +75,7 @@ class VectorClient:
             print(f"Error uploading file {file_path}: {e}")
             return False
     
+    
     def _preprocess_query(self, query_text: str) -> str:
         """Preprocess query text for better search results."""
         # Remove extra whitespace

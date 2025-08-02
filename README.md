@@ -4,18 +4,58 @@ A SOLID-compliant vector database client with RAG capabilities, featuring enhanc
 
 ## Features
 
+- **High-level RAG API** with simplified `add_documents` and `query` methods supporting mixed input types
 - **SOLID-compliant architecture** with abstract interfaces and dependency injection
 - **Enhanced search accuracy** with score filtering and query preprocessing
 - **Multiple vector database support** (currently Milvus, easily extensible)
 - **Intelligent document processing** supporting 15+ file types with optimized chunking
+- **Flexible document input** - support for files, raw content, or mixed input in single call
 - **Environment-aware configuration** (test, dev, prod)
 - **Comprehensive embedding service abstraction** (sentence-transformers + mock for testing)
 - **Dependency injection container** with debugging support for clean service management
 - **Docker-based Milvus deployment** for local development
+- **Complete examples and demonstrations** showing all usage patterns
 
 ## Quick Start
 
-### Using Dependency Injection (Recommended)
+### Using RAG API (Recommended)
+
+```python
+from mcp_rag_playground import create_rag_api
+
+# Create a RAG API instance
+rag_api = create_rag_api("dev")
+
+# Add documents from files
+file_result = rag_api.add_documents(["doc1.txt", "doc2.md"])
+print(f"Uploaded {file_result['summary']['successful']} files")
+
+# Add documents from raw content
+content_result = rag_api.add_documents([
+    {
+        "content": "Python is a versatile programming language",
+        "metadata": {"source": "guide", "topic": "python"}
+    }
+])
+
+# Mix files and content in single call
+mixed_result = rag_api.add_documents([
+    "document.pdf",  # File path
+    {
+        "content": "Vector databases enable semantic search",
+        "metadata": {"source": "inline", "type": "educational"}
+    }
+])
+
+# Query for relevant documents
+results = rag_api.query("Python programming", limit=5, min_score=0.7)
+for result in results:
+    print(f"Score: {result['score']:.3f}")
+    print(f"Content: {result['content'][:100]}...")
+    print(f"Source: {result['source']}")
+```
+
+### Using Vector Client (Lower Level)
 
 ```python
 from mcp_rag_playground import create_vector_client
@@ -31,9 +71,6 @@ results = client.query("your search query", limit=5, min_score=0.75)
 for result in results:
     print(f"Score: {result.score}")
     print(f"Content: {result.document.content}")
-
-# Query preprocessing handles abbreviations automatically
-results = client.query("vector db")  # Expands to "vector database"
 ```
 
 ### Environment-Specific Usage
@@ -53,7 +90,8 @@ prod_client = create_prod_container().get("vector_client")
 1. Clone the repository
 2. Install dependencies: `pip install -r requirements.txt`
 3. Start Milvus: `cd vectordb/milvus && docker-compose up -d`
-4. Run tests: `python -m mcp_rag_playground.tests.test_vector_client`
+4. Run tests: `python -m mcp_rag_playground.tests.test_rag_api`
+5. Try the example: `python examples/rag_usage_example.py`
 
 ## Supported File Types
 

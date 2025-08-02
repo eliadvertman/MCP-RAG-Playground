@@ -174,3 +174,47 @@ class VectorClientConfigProvider(ConfigProvider):
                 "default_collection": "default_collection",
                 "query_limit": 10
             }
+
+
+class RagAPIConfigProvider(ConfigProvider):
+    """Configuration provider for RAG API settings."""
+    
+    def get_config_name(self) -> str:
+        """Get the name of this configuration provider."""
+        return "rag_api"
+    
+    def get_config(self, environment: str = "default") -> dict:
+        """
+        Get RAG API configuration for the specified environment.
+        
+        Args:
+            environment: The environment name
+            
+        Returns:
+            Configuration dictionary
+        """
+        if environment == "test":
+            return {
+                "default_collection": "test_rag_collection",
+                "default_limit": 5,
+                "default_min_score": 0.0
+            }
+        elif environment == "dev":
+            return {
+                "default_collection": "dev_rag_collection", 
+                "default_limit": 10,
+                "default_min_score": 0.0
+            }
+        elif environment == "prod":
+            return {
+                "default_collection": "prod_rag_collection",
+                "default_limit": 15,
+                "default_min_score": 0.3  # Higher threshold in production
+            }
+        else:
+            # Default settings
+            return {
+                "default_collection": "rag_collection",
+                "default_limit": 10,
+                "default_min_score": 0.0
+            }

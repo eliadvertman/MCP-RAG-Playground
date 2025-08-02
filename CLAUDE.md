@@ -24,16 +24,24 @@ This is a Python project called "mcp_rag_playground" set up as an IntelliJ IDEA 
     - `config.py` - Configuration provider interfaces
     - `providers.py` - Service provider implementations
     - `factory.py` - Convenience factory methods
+  - `rag/` - High-level RAG API
+    - `rag_api.py` - Main RAG API with simplified add_documents and query methods
+    - `__init__.py` - RAG module exports
+  - `mcp/` - MCP (Model Context Protocol) integration
+    - `__init__.py` - MCP module placeholder
   - `tests/` - Test suite with dedicated test data
     - `test_vector_client.py` - Comprehensive test script for vector client
     - `test_milvus_config.py` - Test script for Milvus configuration  
     - `test_milvus_func.py` - End-to-end Milvus functionality tests
+    - `test_rag_api.py` - RAG API functionality tests
     - `test_utils.py` - Shared test utilities and helper functions
     - `test_data/` - Dedicated test data files
       - `test_document.md` - Markdown test content
       - `test_document.txt` - Plain text test content
       - `test_module.py` - Python module test content
       - `test_config.json` - Test configuration parameters
+- `examples/` - Usage examples and demonstration scripts
+  - `rag_usage_example.py` - Comprehensive RAG API usage examples
 - `vectordb/milvus/` - Milvus vector database Docker setup
 - `vectordb/milvus/docker-compose.yml` - Docker Compose configuration for running Milvus locally
 
@@ -81,11 +89,72 @@ To test the vector client:
 python -m mcp_rag_playground.tests.test_vector_client
 ```
 
+To test the RAG API:
+```bash
+python -m mcp_rag_playground.tests.test_rag_api
+```
+
+To run the RAG API example:
+```bash
+python examples/rag_usage_example.py
+```
+
 ## Usage Examples
 
-### Basic Vector Client Usage
+### RAG API Usage (Recommended for Most Use Cases)
 
-#### Using Dependency Injection (Recommended)
+#### Quick Start with RAG API
+
+```python
+from mcp_rag_playground import create_rag_api
+
+# Create a RAG API instance
+rag_api = create_rag_api("dev")
+
+# Add documents from files
+file_result = rag_api.add_documents(["doc1.txt", "doc2.md", "doc3.py"])
+print(f"Uploaded {file_result['summary']['successful']} files")
+
+# Add documents from raw content
+content_result = rag_api.add_documents([
+    {
+        "content": "Python is a versatile programming language",
+        "metadata": {"source": "programming_guide", "topic": "python"}
+    },
+    {
+        "content": "Machine learning enables computers to learn from data",
+        "metadata": {"source": "ml_intro", "topic": "ai"}
+    }
+])
+
+# Query for relevant documents
+results = rag_api.query("Python programming", limit=5, min_score=0.7)
+for result in results:
+    print(f"Score: {result['score']}")
+    print(f"Content: {result['content']}")
+    print(f"Source: {result['source']}")
+```
+
+#### Mixed Input (Files + Content)
+
+```python
+# Add both files and content in a single call
+mixed_documents = [
+    "document.pdf",  # File path
+    {
+        "content": "Inline content about vector databases",
+        "metadata": {"source": "inline", "type": "educational"}
+    },
+    "another_file.txt"  # Another file path
+]
+
+result = rag_api.add_documents(mixed_documents)
+print(f"Success rate: {result['summary']['success_rate']:.1%}")
+```
+
+### Advanced Vector Client Usage
+
+#### Using Dependency Injection (Lower Level)
 
 ```python
 from mcp_rag_playground import create_vector_client
@@ -148,6 +217,7 @@ The DocumentProcessor supports multiple file types:
 ## Current State
 
 The project has been implemented with:
+- **High-level RAG API** with simplified document ingestion and querying interface
 - **SOLID-compliant vector database client** with abstract interfaces
 - **Enhanced search accuracy** with score filtering and query preprocessing
 - **Generic document processor** supporting 15+ file types with optimized chunking
@@ -157,8 +227,22 @@ The project has been implemented with:
 - **Environment-aware configuration** (test, dev, prod)
 - **Comprehensive test suite** for validation
 - **Docker Compose setup** for local Milvus deployment
+- **Examples and demonstrations** showing complete usage patterns
 
 ### Recent Enhancements (Latest)
+
+- **High-Level RAG API**:
+  - Simplified `RagAPI` class with user-friendly `add_documents` and `query` methods
+  - Support for mixed document input (files, raw content, or both)
+  - Enhanced result formatting with comprehensive metadata
+  - Collection management operations (info, deletion)
+  - Factory functions `create_rag_api()` and `create_mock_rag_api()` for easy setup
+
+- **Examples and Documentation**:
+  - Comprehensive usage examples in `examples/rag_usage_example.py`
+  - Step-by-step demonstrations of all RAG API features
+  - Test coverage for RAG API functionality in `test_rag_api.py`
+  - Updated documentation with new patterns and usage
 
 - **Search Accuracy Improvements**:
   - Score threshold filtering (`min_score` parameter) to filter low-quality results
@@ -193,6 +277,6 @@ The project has been implemented with:
 4. Then, begin working on the todo items, marking them as complete as you go.
 5. Every step of the way just give me a high level explanation of what changes you made
 6. Make every task and code change you do as simple as possible. We want to avoid making any massive or complex changes. Every change should impact as little code as possible. Everything is about simplicity.
-7. Make sure to not create large Python files. Follow SOLID principles to break big components to smaller ones.
+7. Make sure to not create large Python files. Follow SOLID principles to break big components into smaller ones.
 8. Once finished, add the new files to git staging
 9. Finally, add a review section to the todo.md file with a summary of the changes you made and any other relevant information.

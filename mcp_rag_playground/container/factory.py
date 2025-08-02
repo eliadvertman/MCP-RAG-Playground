@@ -8,12 +8,14 @@ from .providers import (
     MilvusConfigProvider, 
     EmbeddingConfigProvider, 
     DocumentProcessorConfigProvider,
-    VectorClientConfigProvider
+    VectorClientConfigProvider,
+    RagAPIConfigProvider
 )
 from ..vectordb.milvus.milvus_client import MilvusVectorDB
 from ..vectordb.embedding_service import SentenceTransformerEmbedding, MockEmbeddingService
 from ..vectordb.processor.document_processor import DocumentProcessor
 from ..vectordb.vector_client import VectorClient
+from mcp_rag_playground.rag.rag_api import RagAPI
 
 
 def create_container(environment: str = "default") -> Container:
@@ -33,6 +35,7 @@ def create_container(environment: str = "default") -> Container:
     container.register_config_provider(EmbeddingConfigProvider())
     container.register_config_provider(DocumentProcessorConfigProvider())
     container.register_config_provider(VectorClientConfigProvider())
+    container.register_config_provider(RagAPIConfigProvider())
     
     # Register vector database service
     container.register_singleton("vector_db", lambda: MilvusVectorDB(
@@ -70,6 +73,16 @@ def create_container(environment: str = "default") -> Container:
         )
     
     container.register_singleton("vector_client", create_vector_client_service)
+    
+    # Register RAG API service
+    def create_rag_api_service():
+        rag_config = container.get_config("rag_api")
+        return RagAPI(
+            vector_client=container.get("vector_client"),
+            collection_name=rag_config["default_collection"]
+        )
+    
+    container.register_singleton("rag_api", create_rag_api_service)
     
     return container
 
@@ -130,6 +143,42 @@ def create_mock_vector_client(collection_name: str = "test_collection") -> Vecto
 
 
 # Convenience functions for specific services
+def create_rag_api(environment: str = "default", 
+                   collection_name: Optional[str] = None) -> RagAPI:
+    """
+    Create a configured RagAPI instance.
+    
+    Args:
+        environment: Environment name (test, dev, prod, default)
+        collection_name: Optional custom collection name
+        
+    Returns:
+        Configured RagAPI instance
+    """
+    container = create_container(environment)
+    rag_api = container.get("rag_api")
+    
+    # Override collection name if provided
+    if collection_name:
+        rag_api.collection_name = collection_name
+        rag_api.vector_client.collection_name = collection_name
+    
+    return rag_api
+
+
+def create_mock_rag_api(collection_name: str = "test_rag_collection") -> RagAPI:
+    """
+    Create a RagAPI with mock services for testing.
+    
+    Args:
+        collection_name: Collection name for the RAG API
+        
+    Returns:
+        RagAPI with mock embedding service
+    """
+    return create_rag_api("test", collection_name)
+
+
 def create_milvus_client(environment: str = "default") -> MilvusVectorDB:
     """Create a configured MilvusVectorDB instance."""
     container = create_container(environment)
