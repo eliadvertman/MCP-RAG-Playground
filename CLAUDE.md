@@ -10,12 +10,22 @@ This is a Python project called "mcp_rag_playground" set up as an IntelliJ IDEA 
 
 - `venv/` - Python 3.9 virtual environment (activated via `venv/Scripts/activate` on Windows or `source venv/bin/activate` on Unix)
 - `mcp_rag_playground.iml` - IntelliJ IDEA module configuration file
+- `mcp_rag_playground/` - Main Python package containing project modules
+- `mcp_rag_playground/milvus_config.py` - Milvus vector database configuration and connection management
+- `test_milvus_config.py` - Test script for Milvus configuration
+- `vectordb/milvus/` - Milvus vector database Docker setup
+- `vectordb/milvus/docker-compose.yml` - Docker Compose configuration for running Milvus locally
 
 ## Development Environment
 
 - **Python Version**: 3.9.13
 - **Virtual Environment**: Located in `venv/` directory
 - **IDE**: IntelliJ IDEA project setup
+- **Vector Database**: Milvus (configured for Docker deployment)
+
+## Dependencies
+
+- `pymilvus>=2.4.0` - Python SDK for Milvus vector database
 
 ## Common Commands
 
@@ -28,14 +38,29 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-To install dependencies (once requirements are defined):
+To install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
+To start Milvus vector database:
+```bash
+cd vectordb/milvus
+docker-compose up -d
+```
+
+To test Milvus configuration:
+```bash
+python test_milvus_config.py
+```
+
 ## Current State
 
-This project appears to be in initial setup phase with no source code, dependencies, or configuration files present yet. The virtual environment is ready for development.
+The project has been initialized with:
+- Basic project structure and Python package setup
+- Milvus vector database configuration and connection management
+- Docker Compose setup for local Milvus deployment
+- Test scripts for validating the Milvus configuration
 
 ## Workflow
 
