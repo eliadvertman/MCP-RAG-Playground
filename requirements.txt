@@ -1,5 +1,6 @@
-pymilvus>=2.4.0
 sentence-transformers>=2.2.0
 huggingface_hub[hf_xet]
 mcp[cli]>=1.2.0
+pydantic
+pymilvus>=2.4.0
 

@@ -27,7 +27,7 @@ except ImportError:
     RagMCPServer = None
 
 
-def create_container(environment: str = "default", debug: bool = True) -> Container:
+async def create_container(environment: str = "default", debug: bool = True) -> Container:
     """
     Create and configure a dependency injection container.
     

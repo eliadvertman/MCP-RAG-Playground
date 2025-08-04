@@ -172,6 +172,33 @@ class Container:
             if registration.scope == ServiceScope.SINGLETON:
                 registration.instance = None
     
+    async def terminate(self) -> None:
+        """
+        Terminate the container and clean up resources.
+        
+        This method:
+        - Clears all singleton instances
+        - Clears service registrations
+        - Clears configuration providers
+        - Logs termination for debugging
+        """
+        logger.info(f"DI Container: Terminating container for environment '{self.environment}'")
+        
+        # Clear singleton instances first
+        self.clear_singletons()
+        
+        # Clear all service registrations
+        service_count = len(self._services)
+        self._services.clear()
+        
+        # Clear configuration registry
+        self._config_registry = ConfigRegistry()
+        
+        # Clear any in-progress service building state
+        self._building_services.clear()
+        
+        logger.info(f"DI Container: Terminated. Cleared {service_count} service registrations")
+    
     def _build_service(self, registration: ServiceRegistration) -> Any:
         """Build a service instance, resolving dependencies."""
         # No dependencies, just call factory

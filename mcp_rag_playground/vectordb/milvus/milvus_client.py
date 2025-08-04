@@ -5,9 +5,13 @@ Milvus implementation of the vector database interface.
 import uuid
 import json
 from typing import List, Dict, Any, Optional
+
+from mcp_rag_playground.config.logging_config import get_logger
 from mcp_rag_playground.config.milvus_config import MilvusConfig
 from mcp_rag_playground.vectordb.milvus.milvus_connection import MilvusConnection
 from mcp_rag_playground.vectordb.vector_db_interface import Document, SearchResult, VectorDBInterface
+
+logger = get_logger(__name__)
 
 
 class MilvusVectorDB(VectorDBInterface):
@@ -59,7 +63,7 @@ class MilvusVectorDB(VectorDBInterface):
             return True
             
         except Exception as e:
-            print(f"Error creating collection: {e}")
+            logger.error(f"Error creating collection: {e}")
             return False
     
     def insert_documents(self, collection_name: str, documents: List[Document], 
@@ -92,7 +96,7 @@ class MilvusVectorDB(VectorDBInterface):
             return True
             
         except Exception as e:
-            print(f"Error inserting documents: {e}")
+            logger.error(f"Error inserting documents: {e}")
             return False
     
     def search(self, collection_name: str, query_embedding: List[float], 
@@ -138,7 +142,7 @@ class MilvusVectorDB(VectorDBInterface):
             return search_results
             
         except Exception as e:
-            print(f"Error searching documents: {e}")
+            logger.error(f"Error searching documents: {e}")
             return []
     
     def delete_collection(self, collection_name: str) -> bool:
@@ -154,7 +158,7 @@ class MilvusVectorDB(VectorDBInterface):
             return True
             
         except Exception as e:
-            print(f"Error deleting collection: {e}")
+            logger.error(f"Error deleting collection: {e}")
             return False
     
     def collection_exists(self, collection_name: str) -> bool:
@@ -166,7 +170,7 @@ class MilvusVectorDB(VectorDBInterface):
             return utility.has_collection(collection_name)
             
         except Exception as e:
-            print(f"Error checking collection existence: {e}")
+            logger.error(f"Error checking collection existence: {e}")
             return False
     
     def get_collection_info(self, collection_name: str) -> Dict[str, Any]:
@@ -198,7 +202,7 @@ class MilvusVectorDB(VectorDBInterface):
             }
             
         except Exception as e:
-            print(f"Error getting collection info: {e}")
+            logger.error(f"Error getting collection info: {e}")
             return {}
     
     def __enter__(self):

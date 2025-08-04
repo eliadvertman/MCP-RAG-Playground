@@ -32,7 +32,7 @@ class VectorClient:
         """Ensure the collection exists, create if not."""
         if not self._initialized:
             dimension = self.embedding_service.get_dimension()
-            logger.debug(f"Ensuring collection exists: {self.collection_name} (dimension: {dimension})")
+            logger.info(f"Ensuring collection exists: {self.collection_name} (dimension: {dimension})")
             
             if not self.vector_db.collection_exists(self.collection_name):
                 logger.info(f"Creating new collection: {self.collection_name}")
@@ -43,7 +43,7 @@ class VectorClient:
                     raise RuntimeError(error_msg)
                 logger.info(f"Successfully created collection: {self.collection_name}")
             else:
-                logger.debug(f"Collection already exists: {self.collection_name}")
+                logger.info(f"Collection already exists: {self.collection_name}")
             
             self._initialized = True
     
@@ -67,7 +67,7 @@ class VectorClient:
                 logger.warning(f"No documents extracted from file: {file_path}")
                 return False
             
-            logger.debug(f"Extracted {len(documents)} documents from {file_path}")
+            logger.info(f"Extracted {len(documents)} documents from {file_path}")
             texts = [doc.content for doc in documents]
             embeddings = self.embedding_service.embed_texts(texts)
             

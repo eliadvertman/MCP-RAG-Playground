@@ -307,6 +307,12 @@ The project has been implemented with:
 
 ### Recent Enhancements (Latest)
 
+- **MCP Server Bug Fixes (Latest)**:
+  - Fixed critical bug in MCP server where RAG API was accessed incorrectly as configuration instead of service
+  - Updated MCP tools (`add_document_from_file`, `add_document_from_content`, `search_knowledge_base`) to properly access RAG API from dependency injection container
+  - Enhanced logging in Milvus connection manager for better debugging of connection issues
+  - Improved error handling and type hints in MCP server tools
+
 - **MCP Server Integration**:
   - Complete `RagMCPServer` implementation wrapping RAG API functionality
   - 5 MCP tools: document addition (file/content), search, collection info, deletion
