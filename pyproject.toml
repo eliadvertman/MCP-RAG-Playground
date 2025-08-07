@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-rag-playground"
+version = "0.1.0"
+description = "rag mcp playground"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dependency-injector>=4.48.1",
+    "huggingface-hub[hf-xet]>=0.34.3",
+    "mcp[cli]>=1.2.0",
+    "pydantic>=2.11.7",
+    "pymilvus>=2.4.0",
+    "python-dotenv>=1.1.1",
+    "sentence-transformers>=2.2.0",
+]
+
+
+[tool.setuptools.packages.find]
+where = ["."]  # list of folders that contain the packages (["."] by default)
+include = ["mcp_rag_playground"]  # package names should match these glob patterns (["*"] by default)
+exclude = []  # exclude packages matching these glob patterns (empty by default)
+namespaces = false  # to disable scanning PEP 420 namespaces (true by default)

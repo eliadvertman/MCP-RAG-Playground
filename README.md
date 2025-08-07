@@ -128,7 +128,7 @@ prod_client = create_prod_container().get("vector_client")
 
 1. Clone the repository
 2. Install dependencies: `pip install -r requirements.txt`
-3. Install MCP library: `pip install "mcp[cli]>=1.2.0"`
+3. **Install project in editable mode (required for MCP server)**: `pip install -e .`
 4. Start Milvus: `cd vectordb/milvus && docker-compose up -d`
 5. Run tests: 
    - RAG API: `python -m mcp_rag_playground.tests.test_rag_api`

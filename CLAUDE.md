@@ -75,6 +75,9 @@ source venv/bin/activate
 To install dependencies:
 ```bash
 pip install -r requirements.txt
+
+# For MCP server compatibility, install project in editable mode
+pip install -e .
 ```
 
 To start Milvus vector database:
@@ -119,6 +122,13 @@ python -m mcp_rag_playground.tests.test_mcp_server
 ```
 
 ## MCP Server Deployment
+
+**IMPORTANT**: Before running MCP commands, ensure the project is installed in editable mode:
+```bash
+pip install -e .
+```
+
+This is required for the MCP server to properly access project dependencies when using `uv run mcp install` or similar commands.
 
 For comprehensive deployment instructions including Claude Desktop integration, see the **[MCP Deployment Guide](docs/MCP_DEPLOYMENT_GUIDE.md)**.
 
