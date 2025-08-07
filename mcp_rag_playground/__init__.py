@@ -17,19 +17,18 @@ except ImportError:
     _MCP_AVAILABLE = False
     RagMCPServer = None
 
-# Dependency injection imports
+# Dependency injection imports (using new dependency-injector)
 from .container import (
-    Container,
-    ConfigProvider,
-    MilvusConfigProvider,
     create_vector_client,
-    create_container,
-    create_mock_vector_client,
-    create_test_container,
-    create_dev_container,
-    create_prod_container,
     create_rag_api,
-    create_mock_rag_api,
+    create_test_vector_client,
+    create_prod_vector_client,
+    create_test_rag_api,
+    create_prod_rag_api,
+    create_milvus_client,
+    create_embedding_service,
+    create_test_embedding_service,
+    create_document_processor,
     create_rag_mcp_server,
     create_mock_rag_mcp_server
 )
@@ -47,17 +46,16 @@ __all__ = [
     'RagAPI',
     
     # Dependency injection
-    'Container',
-    'ConfigProvider',
-    'MilvusConfigProvider',
     'create_vector_client',
-    'create_container',
-    'create_mock_vector_client',
-    'create_test_container',
-    'create_dev_container',
-    'create_prod_container',
     'create_rag_api',
-    'create_mock_rag_api',
+    'create_test_vector_client',
+    'create_prod_vector_client',
+    'create_test_rag_api',
+    'create_prod_rag_api',
+    'create_milvus_client',
+    'create_embedding_service',
+    'create_test_embedding_service',
+    'create_document_processor',
     'create_rag_mcp_server',
     'create_mock_rag_mcp_server'
 ]

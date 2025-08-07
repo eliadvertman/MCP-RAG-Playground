@@ -13,7 +13,8 @@ from typing import Dict, Any, Optional, AsyncIterator
 
 from mcp.server.fastmcp import FastMCP, Context
 
-from mcp_rag_playground import create_container, Container, RagAPI
+from mcp_rag_playground import RagAPI
+from mcp_rag_playground.container.container import _container
 from mcp_rag_playground.config.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -46,14 +47,23 @@ def _normalize_file_path(file_path: str) -> str:
 
 
 @asynccontextmanager
-async def app_lifespan(server: FastMCP) -> AsyncIterator[Container]:
-    """Manage application lifecycle with type-safe context."""
-    # Initialize on startup
-    cont = await create_container("prod")
+async def app_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
+    """Manage application lifecycle with DI container."""
+    logger.info("Initializing RAG server with DI container")
+    
+    # Get RAG API from production container
+    rag_api = _container.rag_api()
+    logger.info(f"RAG API initialized with collection: {rag_api.collection_name}")
+    
+    # Create context for MCP tools
+    context = {
+        "rag_api": rag_api
+    }
+    
     try:
-        yield cont
+        yield context
     finally:
-        await cont.terminate()
+        logger.info("RAG server shutdown complete")
 
 
 server_name = "FileSystemRagMCP"

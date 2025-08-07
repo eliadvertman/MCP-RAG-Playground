@@ -1,35 +1,27 @@
 """
 Dependency injection container for MCP RAG Playground.
+Uses dependency-injector library for clean, simple DI.
 """
 
-from .container import Container
-from .config import ConfigProvider
-from .providers import MilvusConfigProvider
-from .factory import (
-    create_vector_client, 
-    create_container,
-    create_mock_vector_client,
-    create_test_container,
-    create_dev_container,
-    create_prod_container,
+# Import new dependency-injector based implementation
+from .container import (
+    Container,
+    create_vector_client,
     create_rag_api,
-    create_mock_rag_api,
-    create_rag_mcp_server,
-    create_mock_rag_mcp_server
+    create_prod_vector_client,
+    create_prod_rag_api
 )
 
+
 __all__ = [
+    # Core container
     'Container',
-    'ConfigProvider', 
-    'MilvusConfigProvider',
+    
+    # Main factory functions
     'create_vector_client',
-    'create_container',
-    'create_mock_vector_client',
-    'create_test_container',
-    'create_dev_container',
-    'create_prod_container',
     'create_rag_api',
-    'create_mock_rag_api',
-    'create_rag_mcp_server',
-    'create_mock_rag_mcp_server'
+    
+    # Environment-specific functions
+    'create_prod_vector_client',
+    'create_prod_rag_api',
 ]

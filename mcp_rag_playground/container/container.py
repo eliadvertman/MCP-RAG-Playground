@@ -1,235 +1,139 @@
 """
-Main dependency injection container implementation.
+Dependency injection container using dependency-injector library.
+Defaults to production configuration.
 """
 
-from typing import Any, Callable, Dict, Optional, TypeVar, Type
-from enum import Enum
-from .config import ConfigRegistry, ConfigProvider
-from mcp_rag_playground.config.logging_config import get_logger
+from dependency_injector import containers, providers
+from typing import Optional
 
-logger = get_logger(__name__)
-
-T = TypeVar('T')
-
-
-class ServiceScope(Enum):
-    """Service lifetime scopes."""
-    SINGLETON = "singleton"  # Single instance for container lifetime
-    TRANSIENT = "transient"  # New instance every time
-    SCOPED = "scoped"       # Single instance per scope/request
+from ..vectordb.milvus.milvus_client import MilvusVectorDB
+from ..vectordb.embedding_service import SentenceTransformerEmbedding, MockEmbeddingService
+from ..vectordb.processor.document_processor import DocumentProcessor
+from ..vectordb.vector_client import VectorClient
+from ..rag.rag_api import RagAPI
+from ..config.milvus_config import MilvusConfig
 
 
-class ServiceRegistration:
-    """Represents a service registration."""
+class Container(containers.DeclarativeContainer):
+    """Production-focused dependency injection container."""
     
-    def __init__(self, 
-                 factory: Callable[[], Any], 
-                 scope: ServiceScope = ServiceScope.SINGLETON,
-                 dependencies: Optional[list[str]] = None):
-        self.factory = factory
-        self.scope = scope
-        self.dependencies = dependencies or []
-        self.instance = None  # For singleton instances
+    # Milvus configuration
+    milvus_config = providers.Singleton(
+        MilvusConfig.from_env
+    )
+    
+    # Vector database
+    vector_db = providers.Singleton(
+        MilvusVectorDB,
+        config=milvus_config
+    )
+    
+    # Production embedding service
+    embedding_service = providers.Singleton(
+        SentenceTransformerEmbedding,
+        model_name="all-MiniLM-L6-v2"
+    )
+    
+    # Document processor
+    document_processor = providers.Singleton(
+        DocumentProcessor,
+        chunk_size=800,
+        overlap=200
+    )
+    
+    # Production vector client
+    vector_client = providers.Singleton(
+        VectorClient,
+        vector_db=vector_db,
+        embedding_service=embedding_service,
+        document_processor=document_processor,
+        collection_name=providers.Callable(lambda: "prod_kb_collection")
+    )
+    
+    # Production RAG API
+    rag_api = providers.Singleton(
+        RagAPI,
+        vector_client=vector_client,
+        collection_name=providers.Callable(lambda: "prod_collection")
+    )
 
 
-class Container:
-    """Dependency injection container."""
+# Default container instance
+_container = Container()
+
+
+def create_vector_client(collection_name: Optional[str] = None) -> VectorClient:
+    """
+    Create a configured VectorClient instance for production.
     
-    def __init__(self, environment: str = "default", debug: bool = True):
-        self.environment = environment
-        self.debug = debug
-        self._services: Dict[str, ServiceRegistration] = {}
-        self._config_registry = ConfigRegistry()
-        self._building_services: set[str] = set()  # Track circular dependencies
-        logger.info(f"DI Container: Initialized for environment '{environment}'")
-        if self.debug:
-            logger.debug(f"DI Container: Debug mode enabled")
+    Args:
+        collection_name: Optional collection name override
+        
+    Returns:
+        Configured VectorClient instance
+    """
+    if collection_name:
+        # Create custom vector client with overridden collection name
+        return VectorClient(
+            vector_db=_container.vector_db(),
+            embedding_service=_container.embedding_service(),
+            document_processor=_container.document_processor(),
+            collection_name=collection_name
+        )
+    else:
+        return _container.vector_client()
+
+
+def create_rag_api(collection_name: Optional[str] = None) -> RagAPI:
+    """
+    Create a configured RagAPI instance for production.
     
-    def register_config_provider(self, provider: ConfigProvider) -> 'Container':
-        """
-        Register a configuration provider.
+    Args:
+        collection_name: Optional collection name override
         
-        Args:
-            provider: Configuration provider instance
-            
-        Returns:
-            Self for method chaining
-        """
-        self._config_registry.register(provider)
-        return self
+    Returns:
+        Configured RagAPI instance
+    """
+    if collection_name:
+        # Create custom vector client first
+        vector_client = create_vector_client(collection_name)
+        return RagAPI(
+            vector_client=vector_client,
+            collection_name=collection_name
+        )
+    else:
+        return _container.rag_api()
+
+
+# Convenience functions
+def create_test_vector_client(collection_name: str = "test_collection") -> VectorClient:
+    """Create a VectorClient with mock services for testing."""
+    # Create mock embedding service manually
+    mock_embedding = MockEmbeddingService(dimension=384)
     
-    def register_service(self, 
-                        name: str, 
-                        factory: Callable[[], T], 
-                        scope: ServiceScope = ServiceScope.SINGLETON,
-                        dependencies: Optional[list[str]] = None) -> 'Container':
-        """
-        Register a service with the container.
-        
-        Args:
-            name: Service name
-            factory: Factory function to create the service
-            scope: Service lifetime scope
-            dependencies: List of dependency service names
-            
-        Returns:
-            Self for method chaining
-        """
-        registration = ServiceRegistration(factory, scope, dependencies)
-        self._services[name] = registration
-        deps_str = f" with dependencies: {dependencies}" if dependencies else ""
-        logger.info(f"DI Container: Registered '{name}' as {scope.value}{deps_str}")
-        return self
-    
-    def register_singleton(self, name: str, factory: Callable[[], T]) -> 'Container':
-        """Register a singleton service."""
-        return self.register_service(name, factory, ServiceScope.SINGLETON)
-    
-    def register_transient(self, name: str, factory: Callable[[], T]) -> 'Container':
-        """Register a transient service."""
-        return self.register_service(name, factory, ServiceScope.TRANSIENT)
-    
-    def register_instance(self, name: str, instance: Any) -> 'Container':
-        """Register a pre-created instance as singleton."""
-        def factory():
-            return instance
-        
-        registration = ServiceRegistration(factory, ServiceScope.SINGLETON)
-        registration.instance = instance
-        self._services[name] = registration
-        logger.info(f"DI Container: Registered pre-created instance '{name}' ({type(instance).__name__})")
-        return self
-    
-    def get(self, service_name: str) -> Any:
-        """
-        Get a service instance from the container.
-        
-        Args:
-            service_name: Name of the service to retrieve
-            
-        Returns:
-            Service instance
-            
-        Raises:
-            KeyError: If service not registered
-            RuntimeError: If circular dependency detected
-        """
-        if service_name not in self._services:
-            error_msg = f"Service '{service_name}' not registered"
-            logger.error(error_msg)
-            raise KeyError(error_msg)
-        
-        # Check for circular dependencies
-        if service_name in self._building_services:
-            error_msg = f"Circular dependency detected for service '{service_name}'"
-            logger.error(error_msg)
-            raise RuntimeError(error_msg)
-        
-        registration = self._services[service_name]
-        
-        # Return singleton instance if already created
-        if registration.scope == ServiceScope.SINGLETON and registration.instance is not None:
-            logger.debug(f"DI Container: Returning cached singleton {type(registration.instance).__name__}")
-            return registration.instance
-        
-        # Build dependencies first
-        self._building_services.add(service_name)
-        try:
-            instance = self._build_service(registration)
-        finally:
-            self._building_services.discard(service_name)
-        
-        # Cache singleton instances
-        if registration.scope == ServiceScope.SINGLETON:
-            registration.instance = instance
-            logger.debug(f"DI Container: Cached {type(instance).__name__} as singleton")
-        
-        return instance
-    
-    def get_config(self, config_name: str) -> Any:
-        """
-        Get configuration from registered providers.
-        
-        Args:
-            config_name: Name of the configuration provider
-            
-        Returns:
-            Configuration object
-        """
-        return self._config_registry.get_config(config_name, self.environment)
-    
-    def has_service(self, service_name: str) -> bool:
-        """Check if a service is registered."""
-        return service_name in self._services
-    
-    def has_config(self, config_name: str) -> bool:
-        """Check if a configuration provider is registered."""
-        return config_name in self._config_registry.list_providers()
-    
-    def clear_singletons(self) -> None:
-        """Clear all singleton instances (useful for testing)."""
-        for registration in self._services.values():
-            if registration.scope == ServiceScope.SINGLETON:
-                registration.instance = None
-    
-    async def terminate(self) -> None:
-        """
-        Terminate the container and clean up resources.
-        
-        This method:
-        - Clears all singleton instances
-        - Clears service registrations
-        - Clears configuration providers
-        - Logs termination for debugging
-        """
-        logger.info(f"DI Container: Terminating container for environment '{self.environment}'")
-        
-        # Clear singleton instances first
-        self.clear_singletons()
-        
-        # Clear all service registrations
-        service_count = len(self._services)
-        self._services.clear()
-        
-        # Clear configuration registry
-        self._config_registry = ConfigRegistry()
-        
-        # Clear any in-progress service building state
-        self._building_services.clear()
-        
-        logger.info(f"DI Container: Terminated. Cleared {service_count} service registrations")
-    
-    def _build_service(self, registration: ServiceRegistration) -> Any:
-        """Build a service instance, resolving dependencies."""
-        # No dependencies, just call factory
-        if not registration.dependencies:
-            instance = registration.factory()
-            logger.debug(f"DI Container: Created {type(instance).__name__} (no dependencies)")
-            return instance
-        
-        # Resolve dependencies and inject them
-        dependencies = {}
-        for dep_name in registration.dependencies:
-            dependencies[dep_name] = self.get(dep_name)
-        
-        # Call factory with dependencies
-        # Note: This assumes factory can accept dependencies as keyword arguments
-        # For more complex scenarios, we might need a different approach
-        try:
-            instance = registration.factory(**dependencies)
-            logger.debug(f"DI Container: Created {type(instance).__name__} with dependencies: {list(dependencies.keys())}")
-            return instance
-        except TypeError as e:
-            # Fallback: call factory without arguments
-            logger.warning(f"DI Container: Factory dependency injection failed for {registration.factory.__name__}: {e}")
-            instance = registration.factory()
-            logger.debug(f"DI Container: Created {type(instance).__name__} (fallback, no dependency injection)")
-            return instance
-    
-    def list_services(self) -> list[str]:
-        """Get list of registered service names."""
-        return list(self._services.keys())
-    
-    def list_configs(self) -> list[str]:
-        """Get list of registered configuration provider names."""
-        return self._config_registry.list_providers()
+    return VectorClient(
+        vector_db=_container.vector_db(),
+        embedding_service=mock_embedding,
+        document_processor=_container.document_processor(),
+        collection_name=collection_name
+    )
+
+
+def create_prod_vector_client(collection_name: str = "prod_collection") -> VectorClient:
+    """Create a VectorClient for production."""
+    return create_vector_client(collection_name)
+
+
+def create_test_rag_api(collection_name: str = "test_collection") -> RagAPI:
+    """Create a RagAPI with mock services for testing."""
+    # Create test vector client with mock services
+    vector_client = create_test_vector_client(collection_name)
+    return RagAPI(
+        vector_client=vector_client,
+        collection_name=collection_name
+    )
+
+
+def create_prod_rag_api(collection_name: str = "prod_collection") -> RagAPI:
+    """Create a RagAPI for production."""
+    return create_rag_api(collection_name)
