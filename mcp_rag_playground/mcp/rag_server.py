@@ -55,6 +55,22 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
     rag_api = _container.rag_api()
     logger.info(f"RAG API initialized with collection: {rag_api.collection_name}")
     
+    # Test vector database connection
+    logger.info("Testing vector database connection...")
+    try:
+        connection_success = rag_api.vector_client.test_connection()
+        if not connection_success:
+            error_msg = "Vector database connection test failed. Cannot start MCP server."
+            logger.critical(error_msg)
+            raise RuntimeError(error_msg)
+
+        logger.info("Vector database connection successful - MCP server ready to start")
+
+    except Exception as e:
+        error_msg = f"Failed to test vector database connection: {e}"
+        logger.critical(error_msg)
+        raise RuntimeError(error_msg)
+    
     # Create context for MCP tools
     context = {
         "rag_api": rag_api

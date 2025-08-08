@@ -92,3 +92,57 @@ class MockEmbeddingService(EmbeddingService):
     def get_dimension(self) -> int:
         """Get the dimension of the embeddings."""
         return self.dimension
+
+
+class MockVectorDB:
+    """Mock vector database implementation for testing."""
+    
+    def __init__(self):
+        self._collections: Dict[str, List[Dict]] = {}
+        self._connected = True
+    
+    def create_collection(self, collection_name: str, dimension: int) -> bool:
+        """Create a mock collection."""
+        self._collections[collection_name] = []
+        return True
+    
+    def insert_documents(self, collection_name: str, documents: List, embeddings: List[List[float]]) -> bool:
+        """Insert mock documents."""
+        if collection_name not in self._collections:
+            return False
+        
+        for doc, embedding in zip(documents, embeddings):
+            self._collections[collection_name].append({
+                'document': doc,
+                'embedding': embedding
+            })
+        return True
+    
+    def search(self, collection_name: str, query_embedding: List[float], limit: int = 10) -> List:
+        """Mock search returning empty results."""
+        from .vector_db_interface import SearchResult, Document
+        return []
+    
+    def delete_collection(self, collection_name: str) -> bool:
+        """Delete mock collection."""
+        if collection_name in self._collections:
+            del self._collections[collection_name]
+        return True
+    
+    def collection_exists(self, collection_name: str) -> bool:
+        """Check if mock collection exists."""
+        return collection_name in self._collections
+    
+    def get_collection_info(self, collection_name: str) -> Dict[str, Any]:
+        """Get mock collection info."""
+        if collection_name not in self._collections:
+            return {}
+        return {
+            "name": collection_name,
+            "num_entities": len(self._collections[collection_name]),
+            "description": "Mock collection"
+        }
+    
+    def test_connection(self) -> bool:
+        """Test mock connection - always returns True."""
+        return True

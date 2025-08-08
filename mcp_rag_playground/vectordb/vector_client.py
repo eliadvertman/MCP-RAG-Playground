@@ -184,3 +184,17 @@ class VectorClient:
         except Exception as e:
             logger.error(f"Error deleting collection: {e}")
             return False
+    
+    def test_connection(self) -> bool:
+        """Test the connection to the vector database."""
+        try:
+            logger.info("Testing vector database connection...")
+            success = self.vector_db.test_connection()
+            if success:
+                logger.info("Vector database connection test successful")
+            else:
+                logger.error("Vector database connection test failed")
+            return success
+        except Exception as e:
+            logger.error(f"Error testing connection: {e}")
+            return False

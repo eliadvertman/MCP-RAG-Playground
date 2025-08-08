@@ -205,6 +205,24 @@ class MilvusVectorDB(VectorDBInterface):
             logger.error(f"Error getting collection info: {e}")
             return {}
     
+    def test_connection(self) -> bool:
+        """Test the connection to Milvus."""
+        try:
+            from pymilvus import utility
+            
+            # Attempt to connect
+            self.connect()
+            
+            # Test with a simple operation - list collections
+            utility.list_collections()
+            
+            logger.info("Milvus connection test successful")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Milvus connection test failed: {e}")
+            return False
+    
     def __enter__(self):
         """Context manager entry."""
         self.connect()

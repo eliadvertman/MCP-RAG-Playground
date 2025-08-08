@@ -59,3 +59,8 @@ class VectorDBInterface(ABC):
     def get_collection_info(self, collection_name: str) -> Dict[str, Any]:
         """Get information about a collection."""
         pass
+    
+    @abstractmethod
+    def test_connection(self) -> bool:
+        """Test the connection to the vector database."""
+        pass
