@@ -13,7 +13,12 @@
       "Bash(docker:*)",
       "Bash(docker-compose up:*)",
       "Bash(PYTHONPATH=/mnt/c/Users/Eliad/IdeaProjects/mcp_rag_playground python3 mcp_rag_playground/tests/test_vector_client.py)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "mcp__puppeteer__puppeteer_navigate",
+      "mcp__puppeteer__puppeteer_navigate",
+      "Bash(find:*)",
+      "Bash(rm:*)",
+      "Bash(mv:*)"
     ],
     "deny": []
   }

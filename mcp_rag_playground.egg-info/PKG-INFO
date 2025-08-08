@@ -1,0 +1,214 @@
+Metadata-Version: 2.4
+Name: mcp-rag-playground
+Version: 0.1.0
+Summary: rag mcp playground
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: dependency-injector>=4.48.1
+Requires-Dist: huggingface-hub[hf-xet]>=0.34.3
+Requires-Dist: mcp[cli]>=1.2.0
+Requires-Dist: pydantic>=2.11.7
+Requires-Dist: pymilvus>=2.4.0
+Requires-Dist: python-dotenv>=1.1.1
+Requires-Dist: sentence-transformers>=2.2.0
+
+# MCP RAG Playground
+
+A SOLID-compliant vector database client with RAG capabilities and MCP server integration, featuring enhanced search accuracy, dependency injection and environment-aware configuration.
+
+## Features
+
+- **MCP Server integration** - Model Context Protocol support for seamless LLM integration
+- **High-level RAG API** with simplified `add_documents` and `query` methods supporting mixed input types
+- **SOLID-compliant architecture** with abstract interfaces and dependency injection  
+- **Enhanced search accuracy** with score filtering and query preprocessing
+- **Multiple vector database support** (currently Milvus, easily extensible)
+- **Intelligent document processing** supporting 15+ file types with optimized chunking
+- **Flexible document input** - support for files, raw content, or mixed input in single call
+- **Environment-aware configuration** (test, dev, prod)
+- **Comprehensive embedding service abstraction** (sentence-transformers + mock for testing)
+- **Dependency injection container** with debugging support for clean service management
+- **Docker-based Milvus deployment** for local development
+- **Complete examples and demonstrations** showing all usage patterns
+
+## Quick Start
+
+### Using RAG API (Recommended)
+
+```python
+from mcp_rag_playground import create_rag_api
+
+# Create a RAG API instance
+rag_api = create_rag_api("dev")
+
+# Add documents from files
+file_result = rag_api.add_documents(["doc1.txt", "doc2.md"])
+print(f"Uploaded {file_result['summary']['successful']} files")
+
+# Add documents from raw content
+content_result = rag_api.add_documents([
+    {
+        "content": "Python is a versatile programming language",
+        "metadata": {"source": "guide", "topic": "python"}
+    }
+])
+
+# Mix files and content in single call
+mixed_result = rag_api.add_documents([
+    "document.pdf",  # File path
+    {
+        "content": "Vector databases enable semantic search",
+        "metadata": {"source": "inline", "type": "educational"}
+    }
+])
+
+# Query for relevant documents
+results = rag_api.query("Python programming", limit=5, min_score=0.7)
+for result in results:
+    print(f"Score: {result['score']:.3f}")
+    print(f"Content: {result['content'][:100]}...")
+    print(f"Source: {result['source']}")
+```
+
+### Using Vector Client (Lower Level)
+
+```python
+from mcp_rag_playground import create_vector_client
+
+# Create a client for development environment
+client = create_vector_client("dev")
+
+# Upload a file
+success = client.upload("path/to/document.txt")
+
+# Query for similar content with quality filtering
+results = client.query("your search query", limit=5, min_score=0.75)
+for result in results:
+    print(f"Score: {result.score}")
+    print(f"Content: {result.document.content}")
+```
+
+### Using MCP Server (LLM Integration)
+
+```python
+from mcp_rag_playground import create_rag_mcp_server
+
+# Create MCP server for production use
+mcp_server = create_rag_mcp_server("prod", "knowledge_base")
+
+# Get FastMCP instance for integration
+server = mcp_server.get_server()
+
+# Available MCP tools:
+# - add_document_from_file(file_path)
+# - add_document_from_content(content, metadata)
+# - search_knowledge_base(query, limit, min_score)
+# - get_collection_info()
+# - delete_collection()
+```
+
+**Run MCP Server:**
+```bash
+# Development mode with inspector
+uv run mcp dev examples/mcp_server_example.py
+
+# Integration with Claude Desktop (mcp_servers.json)
+{
+  "mcpServers": {
+    "rag-kb": {
+      "command": "/absolute/path/to/venv/Scripts/python.exe",
+      "args": ["/absolute/path/to/examples/mcp_server_example.py"],
+      "env": {
+        "PYTHONPATH": "/absolute/path/to/project"
+      }
+    }
+  }
+}
+```
+
+### Environment-Specific Usage
+
+```python
+from mcp_rag_playground import create_test_container, create_prod_container
+
+# Test environment (uses mock services)
+test_client = create_test_container().get("vector_client")
+
+# Production environment (uses real services)
+prod_client = create_prod_container().get("vector_client")
+```
+
+## Installation
+
+1. Clone the repository
+2. Install dependencies: `pip install -r requirements.txt`
+3. **Install project in editable mode (required for MCP server)**: `pip install -e .`
+4. Start Milvus: `cd vectordb/milvus && docker-compose up -d`
+5. Run tests: 
+   - RAG API: `python -m mcp_rag_playground.tests.test_rag_api`
+   - MCP Server: `python -m mcp_rag_playground.tests.test_mcp_server`
+6. Try the examples:
+   - RAG API: `python examples/rag_usage_example.py`
+   - MCP Server: `uv run mcp dev examples/mcp_server_example.py`
+
+## 🚀 MCP Server Deployment & Claude Desktop Integration
+
+For detailed instructions on deploying the MCP server locally and integrating it with Claude Desktop, see our comprehensive **[MCP Deployment Guide](docs/MCP_DEPLOYMENT_GUIDE.md)**.
+
+The guide covers:
+- **Local deployment** with step-by-step setup
+- **Claude Desktop integration** configuration
+- **Production deployment** with real vector database
+- **Troubleshooting** common issues
+- **Advanced configuration** and optimization
+- **Usage examples** and best practices
+
+## Supported File Types
+
+- `.txt` - Plain text files
+- `.md`, `.markdown` - Markdown files  
+- `.py` - Python source files
+- `.json` - JSON files
+- `.js`, `.ts` - JavaScript/TypeScript files
+- `.css`, `.html`, `.xml` - Web files
+- `.yml`, `.yaml`, `.toml`, `.ini` - Configuration files
+- `.log` - Log files
+
+## Architecture
+
+The project follows SOLID principles with:
+
+- **Single Responsibility**: Each class has a focused purpose
+- **Open/Closed**: Easy to extend with new vector DBs or file processors
+- **Liskov Substitution**: Implementations are interchangeable via interfaces
+- **Interface Segregation**: Clean, minimal interfaces
+- **Dependency Inversion**: Depends on abstractions, not concretions
+
+## Search Quality Features
+
+### Score Filtering
+Filter results by similarity score to ensure quality:
+```python
+# Only return highly relevant results (recommended: 0.7-0.8)
+results = client.query("search term", min_score=0.75)
+```
+
+### Query Preprocessing
+Automatic query enhancement for better results:
+- **Abbreviation expansion**: `db` → `database`, `ai` → `artificial intelligence`
+- **Normalization**: Whitespace cleanup and lowercasing
+- **Special character handling**: Removes noise that interferes with search
+
+### Optimized Chunking
+- **Chunk size**: 800 characters (optimal for semantic coherence)
+- **Overlap**: 200 characters (ensures context preservation)
+- **Smart boundaries**: Splits at paragraphs, sentences, or word boundaries
+
+## MCP Integration Opportunities
+
+This foundation supports future MCP (Model Context Protocol) integration:
+
+- **File System Access**: Direct document ingestion from file system
+- **Database Queries**: Real-time data retrieval and indexing
+- **Web Search**: Knowledge base augmentation with current information
+- **External APIs**: Integration with productivity tools and services

@@ -105,33 +105,10 @@ def create_rag_api(collection_name: Optional[str] = None) -> RagAPI:
         return _container.rag_api()
 
 
-# Convenience functions
-def create_test_vector_client(collection_name: str = "test_collection") -> VectorClient:
-    """Create a VectorClient with mock services for testing."""
-    # Create mock embedding service manually
-    mock_embedding = MockEmbeddingService(dimension=384)
-    
-    return VectorClient(
-        vector_db=_container.vector_db(),
-        embedding_service=mock_embedding,
-        document_processor=_container.document_processor(),
-        collection_name=collection_name
-    )
-
 
 def create_prod_vector_client(collection_name: str = "prod_collection") -> VectorClient:
     """Create a VectorClient for production."""
     return create_vector_client(collection_name)
-
-
-def create_test_rag_api(collection_name: str = "test_collection") -> RagAPI:
-    """Create a RagAPI with mock services for testing."""
-    # Create test vector client with mock services
-    vector_client = create_test_vector_client(collection_name)
-    return RagAPI(
-        vector_client=vector_client,
-        collection_name=collection_name
-    )
 
 
 def create_prod_rag_api(collection_name: str = "prod_collection") -> RagAPI:

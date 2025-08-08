@@ -21,16 +21,8 @@ except ImportError:
 from .container import (
     create_vector_client,
     create_rag_api,
-    create_test_vector_client,
     create_prod_vector_client,
-    create_test_rag_api,
     create_prod_rag_api,
-    create_milvus_client,
-    create_embedding_service,
-    create_test_embedding_service,
-    create_document_processor,
-    create_rag_mcp_server,
-    create_mock_rag_mcp_server
 )
 
 # Build __all__ list dynamically based on what's available
@@ -39,7 +31,6 @@ __all__ = [
     'VectorClient',
     'MilvusVectorDB', 
     'SentenceTransformerEmbedding',
-    'MockEmbeddingService',
     'Document',
     'SearchResult',
     'MilvusConfig',
@@ -48,16 +39,9 @@ __all__ = [
     # Dependency injection
     'create_vector_client',
     'create_rag_api',
-    'create_test_vector_client',
     'create_prod_vector_client',
-    'create_test_rag_api',
     'create_prod_rag_api',
-    'create_milvus_client',
-    'create_embedding_service',
-    'create_test_embedding_service',
-    'create_document_processor',
-    'create_rag_mcp_server',
-    'create_mock_rag_mcp_server'
+
 ]
 
 # Add MCP Server class if available

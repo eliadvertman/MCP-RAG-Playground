@@ -1,0 +1,13 @@
+p\cli\cli.py", line 141, in _import_server
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "C:\Users\Eliad\IdeaProjects\mcp_rag_playground\mcp_rag_playground\mcp\rag_server.py", line 16, in <module>
+    from mcp_rag_playground import RagAPI
+  File "C:\Users\Eliad\IdeaProjects\mcp_rag_playground\mcp_rag_playground\__init__.py", line 21, in <module>
+    from .container import (
+  File "C:\Users\Eliad\IdeaProjects\mcp_rag_playground\mcp_rag_playground\container\__init__.py", line 7, in <module>
+    from .container import (
+  File "C:\Users\Eliad\IdeaProjects\mcp_rag_playground\mcp_rag_playground\container\container.py", line 6, in <module>
+    from dependency_injector import containers, providers
+ModuleNotFoundError: No module named 'dependency_injector'
