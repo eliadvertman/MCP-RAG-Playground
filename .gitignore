@@ -272,17 +272,41 @@ vectordb/milvus/volumes/
 vectordb/*/volumes/
 vectordb/*/data/
 
-# Milvus database files
+# Milvus database files - RocksDB files
 *.sst
-*.log
 **/LOG*
 **/MANIFEST-*
 **/CURRENT
 **/LOCK
 **/IDENTITY
 **/OPTIONS-*
+
+# MinIO object storage files
 **/xl.meta
 **/part.*
+**/.minio.sys/
+**/minio_data/
+
+# etcd database files
+**/member/
+**/snap/
+**/wal/
+
+# Milvus runtime files
+**/pprof/
+**/mmap/
+**/rdb_data/
+**/rdb_data_meta_kv/
+**/insert_log/
+**/stats_log/
+**/index_files/
+
+# Additional vector database patterns
+vectordb/**/data/
+vectordb/**/logs/
+vectordb/**/volumes/
+vectordb/**/*.log
+vectordb/**/*.sst
 
 # Log files
 logs/
