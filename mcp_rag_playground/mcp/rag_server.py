@@ -452,73 +452,90 @@ def search_knowledge_base(
 #             "status": "error"
 #         }
 #
-# @mcp.tool()
-# def delete_collection() -> Dict[str, Any]:
-#     """
-#     ⚠️  DESTRUCTIVE OPERATION: Permanently delete the entire knowledge base collection.
-#
-#     🚨 CRITICAL WARNING: This operation is IRREVERSIBLE and will completely remove:
-#     - ALL documents and their content from the knowledge base
-#     - ALL metadata, embeddings, and search indices
-#     - ALL collection schema and configuration
-#     - The collection itself and its entire history
-#
-#     This action CANNOT be undone. Once executed, all data is permanently lost.
-#
-#     Safety recommendations:
-#     ⛔ ALWAYS backup your collection before deletion if data recovery might be needed
-#     ⛔ VERIFY you are targeting the correct collection using get_collection_info() first
-#     ⛔ DOUBLE-CHECK this is the intended operation in production environments
-#     ⛔ CONSIDER using this only in development, testing, or explicit cleanup scenarios
-#     ⛔ IMPLEMENT additional confirmation layers in production applications
-#
-#     Legitimate use cases:
-#     - Clean slate: Starting fresh with new document sets
-#     - Development/testing: Resetting test environments between test runs
-#     - Data migration: Removing old collections after successful migration
-#     - Storage cleanup: Freeing resources when collections are genuinely no longer needed
-#     - Error recovery: Clearing corrupted collections that cannot be repaired
-#
-#     Alternative approaches to consider:
-#     - Selective document removal (if such functionality exists)
-#     - Creating new collections instead of deleting existing ones
-#     - Archiving collections rather than deleting them
-#     - Using separate collections for different environments
-#
-#     Post-deletion effects:
-#     - All search operations will fail until new documents are added
-#     - Collection info will show empty/uninitialized state
-#     - Any applications depending on this collection will lose access to data
-#     - Vector indices and embeddings will need to be rebuilt from scratch
-#
-#     Returns:
-#         Deletion result dictionary containing:
-#         - success: Boolean indicating if the deletion succeeded
-#         - collection_name: Name of the deleted collection (for confirmation)
-#         - message: Confirmation message or failure details
-#         - error: Error message if the deletion failed
-#
-#     Example response:
-#         {"success": true, "collection_name": "test_collection",
-#          "message": "Successfully deleted collection 'test_collection'"}
-#     """
-#     try:
-#         success = rag_api.delete_collection()
-#         collection_name = getattr(rag_api, 'collection_name', 'unknown')
-#
-#         return {
-#             "success": success,
-#             "collection_name": collection_name,
-#             "message": f"Successfully deleted collection '{collection_name}'" if success
-#                       else f"Failed to delete collection '{collection_name}'"
-#         }
-#
-#     except Exception as e:
-#         return {
-#             "success": False,
-#             "error": str(e),
-#             "collection_name": getattr(rag_api, 'collection_name', 'unknown')
-#         }
+@mcp.tool()
+def delete_collection(ctx: Context) -> Dict[str, Any]:
+    """
+    ⚠️  DESTRUCTIVE OPERATION: Permanently delete the entire knowledge base collection.
+
+    🚨 CRITICAL WARNING: This operation is IRREVERSIBLE and will completely remove:
+    - ALL documents and their content from the knowledge base
+    - ALL metadata, embeddings, and search indices
+    - ALL collection schema and configuration
+    - The collection itself and its entire history
+
+    This action CANNOT be undone. Once executed, all data is permanently lost.
+
+    Safety recommendations:
+    ⛔ ALWAYS backup your collection before deletion if data recovery might be needed
+    ⛔ VERIFY you are targeting the correct collection using get_collection_info() first
+    ⛔ DOUBLE-CHECK this is the intended operation in production environments
+    ⛔ CONSIDER using this only in development, testing, or explicit cleanup scenarios
+    ⛔ IMPLEMENT additional confirmation layers in production applications
+
+    Legitimate use cases:
+    - Clean slate: Starting fresh with new document sets
+    - Development/testing: Resetting test environments between test runs
+    - Data migration: Removing old collections after successful migration
+    - Storage cleanup: Freeing resources when collections are genuinely no longer needed
+    - Error recovery: Clearing corrupted collections that cannot be repaired
+
+    Alternative approaches to consider:
+    - Selective document removal (if such functionality exists)
+    - Creating new collections instead of deleting existing ones
+    - Archiving collections rather than deleting them
+    - Using separate collections for different environments
+
+    Post-deletion effects:
+    - All search operations will fail until new documents are added
+    - Collection info will show empty/uninitialized state
+    - Any applications depending on this collection will lose access to data
+    - Vector indices and embeddings will need to be rebuilt from scratch
+
+    Args:
+        ctx: MCP context for accessing the RAG API instance
+
+    Returns:
+        Deletion result dictionary containing:
+        - success: Boolean indicating if the deletion succeeded
+        - collection_name: Name of the deleted collection (for confirmation)
+        - message: Confirmation message or failure details
+        - error: Error message if the deletion failed
+
+    Example response:
+        {"success": true, "collection_name": "test_collection",
+         "message": "Successfully deleted collection 'test_collection'"}
+    """
+    try:
+        logger.warning("MCP Tool: delete_collection called - DESTRUCTIVE OPERATION")
+        rag_api: RagAPI = ctx.request_context.lifespan_context.get("rag_api")
+        collection_name = rag_api.collection_name
+        
+        success = rag_api.delete_collection()
+
+        result = {
+            "success": success,
+            "collection_name": collection_name,
+            "message": f"Successfully deleted collection '{collection_name}'" if success
+                      else f"Failed to delete collection '{collection_name}'"
+        }
+        
+        if success:
+            logger.warning(f"Collection '{collection_name}' has been permanently deleted")
+        else:
+            logger.error(f"Failed to delete collection '{collection_name}'")
+            
+        return result
+
+    except Exception as e:
+        logger.error(f"Exception in delete_collection: {e}")
+        rag_api: RagAPI = ctx.request_context.lifespan_context.get("rag_api")
+        collection_name = getattr(rag_api, 'collection_name', 'unknown') if rag_api else 'unknown'
+        
+        return {
+            "success": False,
+            "error": str(e),
+            "collection_name": collection_name
+        }
 
 #
 # def _setup_resources(self):

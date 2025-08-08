@@ -7,7 +7,7 @@ from dependency_injector import containers, providers
 from typing import Optional
 
 from ..vectordb.milvus.milvus_client import MilvusVectorDB
-from ..vectordb.embedding_service import SentenceTransformerEmbedding, MockEmbeddingService
+from ..vectordb.embedding_service import SentenceTransformerEmbedding
 from ..vectordb.processor.document_processor import DocumentProcessor
 from ..vectordb.vector_client import VectorClient
 from ..rag.rag_api import RagAPI

@@ -4,7 +4,7 @@ MCP RAG Playground - Vector database client with RAG capabilities.
 
 from .vectordb.vector_client import VectorClient
 from mcp_rag_playground.vectordb.milvus.milvus_client import MilvusVectorDB
-from mcp_rag_playground.vectordb.embedding_service import SentenceTransformerEmbedding, MockEmbeddingService
+from mcp_rag_playground.vectordb.embedding_service import SentenceTransformerEmbedding
 from mcp_rag_playground.config.milvus_config import MilvusConfig
 from .vectordb.vector_db_interface import Document, SearchResult
 from mcp_rag_playground.rag.rag_api import RagAPI
