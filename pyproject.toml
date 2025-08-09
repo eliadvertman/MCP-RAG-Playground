@@ -11,11 +11,15 @@ requires-python = ">=3.12"
 dependencies = [
     "dependency-injector>=4.48.1",
     "huggingface-hub[hf-xet]>=0.34.3",
-    "mcp[cli]>=1.2.0",
+    "mcp[cli]==1.12.4",
     "pydantic>=2.11.7",
     "pymilvus>=2.4.0",
     "python-dotenv>=1.1.1",
     "sentence-transformers>=2.2.0",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "pyyaml>=6.0.0",
 ]
 
 

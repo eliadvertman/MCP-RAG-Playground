@@ -17,13 +17,7 @@ except ImportError:
     _MCP_AVAILABLE = False
     RagMCPServer = None
 
-# Dependency injection imports (using new dependency-injector)
-from .container import (
-    create_vector_client,
-    create_rag_api,
-    create_prod_vector_client,
-    create_prod_rag_api,
-)
+
 
 # Build __all__ list dynamically based on what's available
 __all__ = [
@@ -36,11 +30,6 @@ __all__ = [
     'MilvusConfig',
     'RagAPI',
     
-    # Dependency injection
-    'create_vector_client',
-    'create_rag_api',
-    'create_prod_vector_client',
-    'create_prod_rag_api',
 
 ]
 

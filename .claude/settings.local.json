@@ -18,7 +18,8 @@
       "mcp__puppeteer__puppeteer_navigate",
       "Bash(find:*)",
       "Bash(rm:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

@@ -339,3 +339,29 @@ temp/
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Additional Python bytecode patterns (comprehensive coverage)
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+
+# Additional vector database patterns for complete coverage
+vectordb/**/volumes/
+vectordb/**/data/
+vectordb/**/*.prof
+vectordb/**/*.bkp
+**/part.*
+**/xlmeta
+**/.minio.sys/**/*
+
+# RocksDB and database log patterns
+**/rdb_data/**/*
+**/rdb_data_meta_kv/**/*
+**/insert_log/**/*
+**/stats_log/**/*
+**/index_files/**/*
+
+# Ensure complete Milvus/MinIO coverage
+**/volumes/**/*
+**/milvus/volumes/**
+**/minio/**/*

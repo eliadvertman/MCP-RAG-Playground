@@ -9,13 +9,14 @@ import os
 import platform
 import time
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Dict, Any, Optional, AsyncIterator
 
 from mcp.server.fastmcp import FastMCP, Context
 
 from mcp_rag_playground import RagAPI
-from mcp_rag_playground.container.container import _container
 from mcp_rag_playground.config.logging_config import get_logger
+from mcp_rag_playground.container.container import Container
 
 logger = get_logger(__name__)
 
@@ -45,14 +46,18 @@ def _normalize_file_path(file_path: str) -> str:
     return file_path
 
 
+@dataclass
+class AppContext:
+    """Application context with typed dependencies."""
+
+    rag_api: RagAPI
 
 @asynccontextmanager
 async def app_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
     """Manage application lifecycle with DI container."""
     logger.info("Initializing RAG server with DI container")
-    
     # Get RAG API from production container
-    rag_api = _container.rag_api()
+    rag_api = container.rag_api()
     logger.info(f"RAG API initialized with collection: {rag_api.collection_name}")
     
     # Test vector database connection
@@ -71,17 +76,12 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
         logger.critical(error_msg)
         raise RuntimeError(error_msg)
     
-    # Create context for MCP tools
-    context = {
-        "rag_api": rag_api
-    }
-    
     try:
-        yield context
+        yield AppContext(rag_api=rag_api)
     finally:
         logger.info("RAG server shutdown complete")
 
-
+container : Container = Container()
 server_name = "FileSystemRagMCP"
 mcp = FastMCP(server_name, lifespan=app_lifespan)
 logger.info(f"Initializing RAG MCP Server: {server_name}")
@@ -131,13 +131,13 @@ def add_document_from_file(ctx: Context, file_path: str) -> Dict[str, Any]:
         :param ctx:
     """
     try:
-        logger.info(f"MCP Tool: add_document_from_file called with: {file_path}")
+        ctx.info(f"MCP Tool: add_document_from_file called with: {file_path}")
         # Normalize the file path for cross-platform compatibility
         normalized_path = _normalize_file_path(file_path)
 
         if not os.path.exists(normalized_path):
             error_msg = f"File not found: {file_path} (checked: {normalized_path})"
-            logger.error(error_msg)
+            ctx.error(error_msg)
             return {
                 "success": False,
                 "error": error_msg,
@@ -162,7 +162,7 @@ def add_document_from_file(ctx: Context, file_path: str) -> Dict[str, Any]:
         # Measure processing time
         start_time = time.time()
         logger.info('Getting context of rag_api from DI')
-        rag_api : RagAPI = ctx.request_context.lifespan_context.get("rag_api")
+        rag_api : RagAPI = ctx.request_context.lifespan_context.rag_api
         success = rag_api.add_document(normalized_path)
         end_time = time.time()
         processing_time = end_time - start_time
@@ -178,15 +178,14 @@ def add_document_from_file(ctx: Context, file_path: str) -> Dict[str, Any]:
 
         if success:
             result["message"] = f"Successfully processed {os.path.basename(normalized_path)} ({file_size:,} bytes) in {processing_time:.1f}s"
-            logger.info(f"Successfully processed file: {normalized_path} in {processing_time:.1f}s")
+            ctx.info(f"Successfully processed file: {normalized_path} in {processing_time:.1f}s")
         else:
             result["message"] = f"Failed to process {os.path.basename(normalized_path)}"
-            logger.error(f"Failed to process file: {normalized_path}")
-
+            ctx.error(f"Failed to process file: {normalized_path}")
         return result
 
     except Exception as e:
-        logger.error(f"Exception in add_document_from_file: {e}")
+        ctx.error(f"Exception in add_document_from_file: {e}")
         return {
             "success": False,
             "error": str(e),
@@ -262,7 +261,7 @@ def add_document_from_content(ctx: Context, content: str, metadata: Optional[Dic
             temp_file_path = temp_file.name
 
         try:
-            rag_api : RagAPI = ctx.request_context.lifespan_context.get("rag_api")
+            rag_api : RagAPI = ctx.request_context.lifespan_context.rag_api
             success = rag_api.add_document(temp_file_path)
 
             return {
@@ -369,7 +368,7 @@ def search_knowledge_base(
                 "error": "Query cannot be empty",
                 "results": []
             }
-        rag_api : RagAPI = ctx.request_context.lifespan_context.get("rag_api")
+        rag_api : RagAPI = ctx.request_context.lifespan_context.rag_api
         results = rag_api.query(query.strip(), limit=limit, min_score=min_score)
         logger.info(f"Search completed: {len(results)} results returned")
 
@@ -391,67 +390,6 @@ def search_knowledge_base(
             "results": []
         }
 
-# @mcp.tool()
-# def get_collection_info() -> Dict[str, Any]:
-#     """
-#     Get comprehensive information about the current knowledge base collection status and metrics.
-#
-#     This tool provides essential insights into your knowledge base health, size, and configuration.
-#     Use it to monitor collection status, track document ingestion progress, debug issues,
-#     and understand the current state of your searchable content.
-#
-#     Information provided:
-#     - Collection name and identification
-#     - Document count and storage metrics
-#     - Collection readiness and health status
-#     - Schema information and field configuration
-#     - Error states and diagnostic information
-#
-#     Monitoring use cases:
-#     - Verify knowledge base is properly initialized before searching
-#     - Track document ingestion progress during batch uploads
-#     - Debug connection issues or configuration problems
-#     - Monitor collection growth and storage usage
-#     - Validate collection state before critical operations
-#     - Generate usage reports and analytics
-#
-#     Operational benefits:
-#     - Preventive health checks before automated operations
-#     - Integration testing and deployment validation
-#     - Performance monitoring and capacity planning
-#     - Troubleshooting search quality issues
-#     - System status dashboards and monitoring
-#
-#     Returns:
-#         Collection information dictionary containing:
-#         - success: Boolean indicating if the operation succeeded
-#         - collection_name: Name of the current collection
-#         - status: Overall collection status ("ready", "not_initialized", "error")
-#         - collection_ready: Boolean indicating if the collection is ready for operations
-#         - document_count: Number of documents currently stored (if available)
-#         - schema_fields: Number of schema fields configured (if available)
-#         - raw_info: Complete collection metadata from the vector database
-#         - error: Error message if the operation failed
-#
-#     Example responses:
-#         {"success": true, "collection_name": "knowledge_base", "status": "ready",
-#          "document_count": 1250, "collection_ready": true}
-#         {"success": false, "status": "error", "error": "Connection timeout"}
-#     """
-#     try:
-#         info = rag_api.get_collection_info()
-#         return {
-#             "success": True,
-#             **info
-#         }
-#     except Exception as e:
-#         return {
-#             "success": False,
-#             "error": str(e),
-#             "collection_name": getattr(rag_api, 'collection_name', 'unknown'),
-#             "status": "error"
-#         }
-#
 @mcp.tool()
 def delete_collection(ctx: Context) -> Dict[str, Any]:
     """
@@ -507,7 +445,7 @@ def delete_collection(ctx: Context) -> Dict[str, Any]:
     """
     try:
         logger.warning("MCP Tool: delete_collection called - DESTRUCTIVE OPERATION")
-        rag_api: RagAPI = ctx.request_context.lifespan_context.get("rag_api")
+        rag_api: RagAPI = ctx.request_context.lifespan_context.rag_api
         collection_name = rag_api.collection_name
         
         success = rag_api.delete_collection()
@@ -528,7 +466,7 @@ def delete_collection(ctx: Context) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Exception in delete_collection: {e}")
-        rag_api: RagAPI = ctx.request_context.lifespan_context.get("rag_api")
+        rag_api: RagAPI = ctx.request_context.lifespan_context.rag_api
         collection_name = getattr(rag_api, 'collection_name', 'unknown') if rag_api else 'unknown'
         
         return {
@@ -536,6 +474,7 @@ def delete_collection(ctx: Context) -> Dict[str, Any]:
             "error": str(e),
             "collection_name": collection_name
         }
+
 
 #
 # def _setup_resources(self):
