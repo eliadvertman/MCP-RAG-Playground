@@ -15,17 +15,19 @@ A SOLID-compliant vector database client with RAG capabilities and MCP server in
 - **Comprehensive embedding service abstraction** (sentence-transformers + mock for testing)
 - **Dependency injection container** with debugging support for clean service management
 - **Docker-based Milvus deployment** for local development
-- **Complete examples and demonstrations** showing all usage patterns
+- **Comprehensive test suite** with pytest fixtures and markers
 
 ## Quick Start
 
 ### Using RAG API (Recommended)
 
 ```python
-from mcp_rag_playground import create_rag_api
+from mcp_rag_playground import RagAPI
+from mcp_rag_playground.container.container import Container
 
-# Create a RAG API instance
-rag_api = create_rag_api("dev")
+# Create a RAG API instance using dependency injection
+container = Container()
+rag_api = container.rag_api()
 
 # Add documents from files
 file_result = rag_api.add_documents(["doc1.txt", "doc2.md"])
@@ -59,10 +61,12 @@ for result in results:
 ### Using Vector Client (Lower Level)
 
 ```python
-from mcp_rag_playground import create_vector_client
+from mcp_rag_playground import VectorClient
+from mcp_rag_playground.container.container import Container
 
-# Create a client for development environment
-client = create_vector_client("dev")
+# Create a vector client using dependency injection
+container = Container()
+client = container.vector_client()
 
 # Upload a file
 success = client.upload("path/to/document.txt")
@@ -76,34 +80,30 @@ for result in results:
 
 ### Using MCP Server (LLM Integration)
 
-```python
-from mcp_rag_playground import create_rag_mcp_server
-
-# Create MCP server for production use
-mcp_server = create_rag_mcp_server("prod", "knowledge_base")
-
-# Get FastMCP instance for integration
-server = mcp_server.get_server()
-
-# Available MCP tools:
-# - add_document_from_file(file_path)
-# - add_document_from_content(content, metadata)
-# - search_knowledge_base(query, limit, min_score)
-# - get_collection_info()
-# - delete_collection()
-```
+The MCP server is implemented as a module-level FastMCP application:
 
 **Run MCP Server:**
 ```bash
-# Development mode with inspector
-uv run mcp dev examples/mcp_server_example.py
+# Run the MCP server directly
+python -m mcp_rag_playground.mcp.rag_server
 
-# Integration with Claude Desktop (mcp_servers.json)
+# Or use with uv for development
+uv run python -m mcp_rag_playground.mcp.rag_server
+```
+
+**Available MCP Tools:**
+- `add_document_from_file(file_path)` - Add documents from file paths
+- `add_document_from_content(content, metadata)` - Add documents from raw content
+- `search_knowledge_base(query, limit, min_score)` - Search for relevant documents
+- `delete_collection()` - Remove all documents (⚠️ destructive)
+
+**Claude Desktop Integration:**
+```json
 {
   "mcpServers": {
     "rag-kb": {
       "command": "/absolute/path/to/venv/Scripts/python.exe",
-      "args": ["/absolute/path/to/examples/mcp_server_example.py"],
+      "args": ["-m", "mcp_rag_playground.mcp.rag_server"],
       "env": {
         "PYTHONPATH": "/absolute/path/to/project"
       }
@@ -112,30 +112,44 @@ uv run mcp dev examples/mcp_server_example.py
 }
 ```
 
-### Environment-Specific Usage
+### Manual Component Construction
 
 ```python
-from mcp_rag_playground import create_test_container, create_prod_container
+from mcp_rag_playground import (
+    VectorClient, RagAPI, MilvusVectorDB, 
+    SentenceTransformerEmbedding, MilvusConfig
+)
+from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
 
-# Test environment (uses mock services)
-test_client = create_test_container().get("vector_client")
+# Manual construction for custom configurations
+config = MilvusConfig(host="localhost", port=19530, collection_name="my_collection")
+vector_db = MilvusVectorDB(config=config)
+embedding_service = SentenceTransformerEmbedding(model_name="all-MiniLM-L6-v2")
+document_processor = DocumentProcessor(chunk_size=800, overlap=200)
 
-# Production environment (uses real services)
-prod_client = create_prod_container().get("vector_client")
+# Create vector client
+vector_client = VectorClient(
+    vector_db=vector_db,
+    embedding_service=embedding_service,
+    document_processor=document_processor,
+    collection_name="my_collection"
+)
+
+# Create RAG API
+rag_api = RagAPI(vector_client=vector_client, collection_name="my_collection")
 ```
 
 ## Installation
 
 1. Clone the repository
-2. Install dependencies: `pip install -r requirements.txt`
-3. **Install project in editable mode (required for MCP server)**: `pip install -e .`
-4. Start Milvus: `cd vectordb/milvus && docker-compose up -d`
-5. Run tests: 
-   - RAG API: `python -m mcp_rag_playground.tests.test_rag_api`
-   - MCP Server: `python -m mcp_rag_playground.tests.test_mcp_server`
-6. Try the examples:
-   - RAG API: `python examples/rag_usage_example.py`
-   - MCP Server: `uv run mcp dev examples/mcp_server_example.py`
+2. **Install project in editable mode (required for MCP server)**: `pip install -e .`
+3. Start Milvus: `cd vectordb/milvus && docker-compose up -d`
+4. Run tests: 
+   - All tests: `pytest`
+   - Unit tests only: `pytest -m "unit"`
+   - Skip slow tests: `pytest -m "not slow"`
+   - Specific test files: `pytest mcp_rag_playground/tests/test_vector_client.py`
+5. Try the MCP server: `python -m mcp_rag_playground.mcp.rag_server`
 
 ## 🚀 MCP Server Deployment & Claude Desktop Integration
 
@@ -190,11 +204,32 @@ Automatic query enhancement for better results:
 - **Overlap**: 200 characters (ensures context preservation)
 - **Smart boundaries**: Splits at paragraphs, sentences, or word boundaries
 
-## MCP Integration Opportunities
+## Testing
 
-This foundation supports future MCP (Model Context Protocol) integration:
+The project includes comprehensive testing with pytest:
 
-- **File System Access**: Direct document ingestion from file system
-- **Database Queries**: Real-time data retrieval and indexing
-- **Web Search**: Knowledge base augmentation with current information
-- **External APIs**: Integration with productivity tools and services
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=mcp_rag_playground
+
+# Run specific test categories
+pytest -m "unit"           # Unit tests only
+pytest -m "integration"    # Integration tests
+pytest -m "not slow"       # Skip slow tests
+pytest -m "milvus"         # Tests requiring Milvus
+
+# Run specific test files
+pytest mcp_rag_playground/tests/test_vector_client.py
+pytest mcp_rag_playground/tests/test_embedding_service.py
+```
+
+### Test Organization
+
+- **Unit Tests**: Fast, isolated tests with mocks
+- **Integration Tests**: Tests with real Milvus and embedding models  
+- **Fixtures**: Organized in `mcp_rag_playground/tests/fixtures/`
+- **Markers**: Comprehensive test categorization system
+- **Coverage**: Target 80% minimum coverage
