@@ -1,12 +1,9 @@
 """
-MCP (Model Context Protocol) integration for RAG functionality.
+MCP (Model Context Protocol) server module.
 
-This module provides MCP server implementations that wrap the RAG API,
-making document ingestion and semantic search available as MCP tools.
+This module provides FastMCP server functionality for RAG operations.
 """
 
-from .rag_server import RagMCPServer
+from . import rag_server
 
-__all__ = [
-    'RagMCPServer'
-]
+__all__ = ['rag_server']
