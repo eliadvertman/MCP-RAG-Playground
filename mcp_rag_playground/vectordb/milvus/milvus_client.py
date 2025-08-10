@@ -4,6 +4,7 @@ Milvus implementation of the vector database interface.
 
 import uuid
 import json
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from mcp_rag_playground.config.logging_config import get_logger
@@ -47,6 +48,15 @@ class MilvusVectorDB(VectorDBInterface):
                 FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=65535, is_primary=True),
                 FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
                 FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=65535),
+                # Enhanced metadata fields for efficient querying
+                FieldSchema(name="filename", dtype=DataType.VARCHAR, max_length=1024),
+                FieldSchema(name="file_type", dtype=DataType.VARCHAR, max_length=50),
+                FieldSchema(name="ingestion_timestamp", dtype=DataType.VARCHAR, max_length=100),
+                FieldSchema(name="chunk_count", dtype=DataType.INT32),
+                FieldSchema(name="file_size", dtype=DataType.INT64),
+                FieldSchema(name="chunk_position", dtype=DataType.INT32),
+                FieldSchema(name="vector_id", dtype=DataType.VARCHAR, max_length=100),
+                FieldSchema(name="embedding_status", dtype=DataType.VARCHAR, max_length=50),
                 FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dimension)
             ]
             
@@ -59,6 +69,15 @@ class MilvusVectorDB(VectorDBInterface):
                 "params": {"nlist": 128}
             }
             collection.create_index("embedding", index_params)
+            
+            # Create indexes on frequently queried metadata fields for performance
+            try:
+                collection.create_index("filename", {"index_type": "TRIE"})
+                collection.create_index("file_type", {"index_type": "TRIE"})
+                logger.info(f"Created metadata indexes for collection: {collection_name}")
+            except Exception as index_e:
+                # Index creation is optional, don't fail if not supported
+                logger.warning(f"Could not create metadata indexes: {index_e}")
             
             return True
             
@@ -82,14 +101,33 @@ class MilvusVectorDB(VectorDBInterface):
             ids = []
             contents = []
             metadata_list = []
+            filenames = []
+            file_types = []
+            ingestion_timestamps = []
+            chunk_counts = []
+            file_sizes = []
+            chunk_positions = []
+            vector_ids = []
+            embedding_statuses = []
             
             for doc, embedding in zip(documents, embeddings):
                 doc_id = doc.id or str(uuid.uuid4())
                 ids.append(doc_id)
                 contents.append(doc.content)
                 metadata_list.append(json.dumps(doc.metadata))
+                
+                # Add enhanced metadata fields
+                filenames.append(doc.filename or "")
+                file_types.append(doc.file_type or "")
+                ingestion_timestamps.append(doc.ingestion_timestamp.isoformat() if doc.ingestion_timestamp else "")
+                chunk_counts.append(doc.chunk_count or 0)
+                file_sizes.append(doc.file_size or 0)
+                chunk_positions.append(doc.chunk_position or 0)
+                vector_ids.append(doc.vector_id or doc_id)  # Use doc_id as fallback
+                embedding_statuses.append(doc.embedding_status or "pending")
             
-            entities = [ids, contents, metadata_list, embeddings]
+            entities = [ids, contents, metadata_list, filenames, file_types, ingestion_timestamps, 
+                       chunk_counts, file_sizes, chunk_positions, vector_ids, embedding_statuses, embeddings]
             collection.insert(entities)
             collection.flush()
             
@@ -120,17 +158,30 @@ class MilvusVectorDB(VectorDBInterface):
                 anns_field="embedding",
                 param=search_params,
                 limit=limit,
-                output_fields=["content", "metadata"]
+                output_fields=["content", "metadata", "filename", "file_type", "ingestion_timestamp", 
+                             "chunk_count", "file_size", "chunk_position", "vector_id", "embedding_status"]
             )
             
             search_results = []
             for hits in results:
                 for hit in hits:
                     metadata = json.loads(hit.entity.get("metadata"))
+                    
+                    # Parse ingestion timestamp with improved error handling
+                    ingestion_timestamp = self._parse_datetime_field(hit.entity.get("ingestion_timestamp"))
+                    
                     document = Document(
                         content=hit.entity.get("content"),
                         metadata=metadata,
-                        id=hit.id
+                        id=hit.id,
+                        filename=hit.entity.get("filename") or None,
+                        file_type=hit.entity.get("file_type") or None,
+                        ingestion_timestamp=ingestion_timestamp,
+                        chunk_count=hit.entity.get("chunk_count") or None,
+                        file_size=hit.entity.get("file_size") or None,
+                        chunk_position=hit.entity.get("chunk_position") or None,
+                        vector_id=hit.entity.get("vector_id") or None,
+                        embedding_status=hit.entity.get("embedding_status") or "pending"
                     )
                     
                     search_results.append(SearchResult(
@@ -231,3 +282,22 @@ class MilvusVectorDB(VectorDBInterface):
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         self.disconnect()
+    
+    def _parse_datetime_field(self, datetime_str: str) -> Optional[datetime]:
+        """
+        Parse datetime string with robust error handling.
+        
+        Args:
+            datetime_str: ISO format datetime string
+            
+        Returns:
+            Parsed datetime or None if parsing fails
+        """
+        if not datetime_str or not isinstance(datetime_str, str):
+            return None
+        
+        try:
+            return datetime.fromisoformat(datetime_str)
+        except ValueError:
+            logger.warning(f"Failed to parse datetime string: {datetime_str}")
+            return None

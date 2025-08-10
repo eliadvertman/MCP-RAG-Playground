@@ -290,7 +290,7 @@ Transform MCP RAG Playground into the **enterprise-standard RAG infrastructure p
 
 ### C. References
 
-- [System Architecture Analysis](./architecture-analysis.md)
+- [System Architecture Analysis](./brownfield-architecture.md)
 - [MCP RAG Playground Repository](https://github.com/user/mcp-rag-playground)
 - [SOLID Design Principles Documentation](./CLAUDE.md)
 - [Milvus Production Deployment Guide](https://milvus.io/docs/deployment)

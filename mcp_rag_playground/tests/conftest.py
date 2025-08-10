@@ -29,6 +29,9 @@ def pytest_configure(config):
         "markers", "milvus: mark test as requiring Milvus connection"
     )
     config.addinivalue_line(
+        "markers", "metadata: mark test as testing metadata functionality"
+    )
+    config.addinivalue_line(
         "markers", "embedding: mark test as requiring embedding models"
     )
     config.addinivalue_line(

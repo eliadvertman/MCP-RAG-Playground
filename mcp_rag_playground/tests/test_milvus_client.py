@@ -9,7 +9,7 @@ import uuid
 import pytest
 
 from mcp_rag_playground.config.milvus_config import MilvusConfig
-from mcp_rag_playground.vectordb.milvus.milvus_client_basic import MilvusVectorDB
+from mcp_rag_playground.vectordb.milvus.milvus_client import MilvusVectorDB
 from mcp_rag_playground.vectordb.vector_db_interface import Document, SearchResult
 
 

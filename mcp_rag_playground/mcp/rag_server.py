@@ -391,6 +391,248 @@ def search_knowledge_base(
         }
 
 @mcp.tool()
+def get_document_metadata(ctx: Context, document_id: str) -> Dict[str, Any]:
+    """
+    Retrieve comprehensive metadata for a specific document by its ID.
+    
+    This tool provides detailed information about a document in the knowledge base,
+    including both document-level and chunk-level metadata. Perfect for tracking
+    document ingestion history, analyzing knowledge base composition, and
+    troubleshooting document-related issues.
+    
+    Returned metadata includes:
+    - Basic info: filename, file type, content length
+    - Ingestion tracking: timestamp, processing status
+    - Chunking details: chunk position, total chunks, file size
+    - Vector info: embedding status, vector ID, similarity scores
+    - Content preview: truncated document content
+    
+    Use cases:
+    - Document management and administration
+    - Debugging ingestion issues
+    - Quality assurance and content validation
+    - Knowledge base analytics and reporting
+    - Troubleshooting search relevance issues
+    
+    Args:
+        document_id: Unique identifier of the document to retrieve metadata for
+        
+    Returns:
+        Document metadata dictionary containing:
+        - success: Boolean indicating if the document was found
+        - document_id: The requested document ID
+        - metadata: Complete document metadata including all tracking fields
+        - content_preview: First 200 characters of document content
+        - error: Error message if document not found or retrieval failed
+    """
+    try:
+        logger.info(f"MCP Tool: get_document_metadata called for document: {document_id}")
+        
+        # Input validation
+        if not document_id or not isinstance(document_id, str) or not document_id.strip():
+            return {
+                "success": False,
+                "document_id": document_id,
+                "error": "document_id must be a non-empty string"
+            }
+        
+        document_id = document_id.strip()
+        rag_api: RagAPI = ctx.request_context.lifespan_context.rag_api
+        
+        # Search for the specific document ID
+        # Note: This is a simple implementation. For better performance,
+        # consider adding a direct document retrieval method to VectorClient
+        results = rag_api.query(document_id, limit=100)
+        
+        # Find the document with matching ID
+        document = None
+        for result in results:
+            if result.get('document_id') == document_id:
+                document = result
+                break
+        
+        if not document:
+            return {
+                "success": False,
+                "document_id": document_id,
+                "error": f"Document with ID '{document_id}' not found"
+            }
+        
+        # Extract metadata from the document
+        content = document.get('content', '')
+        metadata = {
+            "document_id": document_id,
+            "filename": document.get('filename'),
+            "file_type": document.get('file_type'),
+            "ingestion_timestamp": document.get('ingestion_timestamp'),
+            "chunk_count": document.get('chunk_count'),
+            "file_size": document.get('file_size'),
+            "chunk_position": document.get('chunk_position'),
+            "vector_id": document.get('vector_id'),
+            "embedding_status": document.get('embedding_status'),
+            "content_length": len(content),
+        }
+        
+        return {
+            "success": True,
+            "document_id": document_id,
+            "metadata": metadata,
+            "content_preview": content[:200] + "..." if len(content) > 200 else content
+        }
+        
+    except Exception as e:
+        logger.error(f"Exception in get_document_metadata: {e}")
+        return {
+            "success": False,
+            "document_id": document_id,
+            "error": str(e)
+        }
+
+
+@mcp.tool()
+def list_documents_with_metadata(ctx: Context, limit: int = 20, file_type_filter: str = None) -> Dict[str, Any]:
+    """
+    List all documents in the knowledge base with their metadata.
+    
+    This tool provides a comprehensive overview of all documents stored in the
+    knowledge base, including their metadata. Essential for knowledge base
+    administration, content auditing, and understanding the composition of
+    your document collection.
+    
+    Features:
+    - Complete document inventory with metadata
+    - Optional file type filtering (e.g., ".py", ".md", ".txt")
+    - Pagination support with configurable limits
+    - Summary statistics about the knowledge base
+    - Document grouping by file type and ingestion date
+    
+    Metadata included for each document:
+    - File information: name, type, size, ingestion date
+    - Processing details: chunk count, embedding status
+    - Content summary: length, preview
+    - Technical details: vector IDs, chunk positions
+    
+    Use cases:
+    - Knowledge base inventory and auditing
+    - Content management and organization
+    - Identifying processing issues or gaps
+    - Planning knowledge base maintenance
+    - Generating reports on knowledge base composition
+    - Finding documents for selective deletion or updates
+    
+    Args:
+        limit: Maximum number of documents to return (1-100, default: 20)
+        file_type_filter: Optional file extension filter (e.g., ".py", ".md")
+                         Only documents with matching file types will be included
+        
+    Returns:
+        Document listing dictionary containing:
+        - success: Boolean indicating if the operation succeeded
+        - total_found: Number of documents found (before limit applied)
+        - returned_count: Number of documents in this response
+        - limit: Applied result limit
+        - file_type_filter: Applied file type filter (if any)
+        - documents: Array of document metadata objects
+        - summary: Statistics about file types, ingestion dates, etc.
+        - error: Error message if the operation failed
+    """
+    try:
+        logger.info(f"MCP Tool: list_documents_with_metadata called (limit: {limit}, filter: {file_type_filter})")
+        
+        # Input validation
+        if limit < 1 or limit > 100:
+            return {
+                "success": False,
+                "error": "limit must be between 1 and 100",
+                "documents": []
+            }
+        
+        if file_type_filter is not None and not isinstance(file_type_filter, str):
+            return {
+                "success": False,
+                "error": "file_type_filter must be a string or None",
+                "documents": []
+            }
+        
+        rag_api: RagAPI = ctx.request_context.lifespan_context.rag_api
+        
+        # Use a broad search to get all documents
+        # Note: This is not the most efficient approach for large collections
+        # Consider implementing a dedicated "list all documents" method
+        all_results = rag_api.query("*", limit=max(limit, 1000), min_score=0.0)
+        
+        # Filter by file type if specified
+        if file_type_filter:
+            filtered_results = [
+                result for result in all_results 
+                if result.get('file_type', '').lower() == file_type_filter.lower()
+            ]
+        else:
+            filtered_results = all_results
+        
+        # Apply limit
+        limited_results = filtered_results[:limit]
+        
+        # Build document metadata list
+        documents = []
+        file_types = {}
+        ingestion_dates = {}
+        
+        for result in limited_results:
+            content = result.get('content', '')
+            doc_metadata = {
+                "document_id": result.get('document_id'),
+                "filename": result.get('filename'),
+                "file_type": result.get('file_type'),
+                "ingestion_timestamp": result.get('ingestion_timestamp'),
+                "chunk_count": result.get('chunk_count'),
+                "file_size": result.get('file_size'),
+                "chunk_position": result.get('chunk_position'),
+                "vector_id": result.get('vector_id'),
+                "embedding_status": result.get('embedding_status'),
+                "content_length": len(content),
+                "content_preview": content[:100] + "..." if len(content) > 100 else content
+            }
+            documents.append(doc_metadata)
+            
+            # Collect statistics
+            ftype = result.get('file_type', 'unknown')
+            file_types[ftype] = file_types.get(ftype, 0) + 1
+            
+            # Collect ingestion date (just date part)
+            timestamp = result.get('ingestion_timestamp')
+            if timestamp:
+                date_part = timestamp.split('T')[0] if 'T' in timestamp else timestamp
+                ingestion_dates[date_part] = ingestion_dates.get(date_part, 0) + 1
+        
+        # Generate summary
+        summary = {
+            "file_types": file_types,
+            "ingestion_dates": ingestion_dates,
+            "total_documents": len(filtered_results),
+            "unique_files": len(set(d.get('filename') for d in documents if d.get('filename')))
+        }
+        
+        return {
+            "success": True,
+            "total_found": len(all_results),
+            "returned_count": len(documents),
+            "limit": limit,
+            "file_type_filter": file_type_filter,
+            "documents": documents,
+            "summary": summary
+        }
+        
+    except Exception as e:
+        logger.error(f"Exception in list_documents_with_metadata: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "documents": []
+        }
+
+
+@mcp.tool()
 def delete_collection(ctx: Context) -> Dict[str, Any]:
     """
     ⚠️  DESTRUCTIVE OPERATION: Permanently delete the entire knowledge base collection.

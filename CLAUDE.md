@@ -17,9 +17,11 @@ Python 3.9 MCP RAG playground with SOLID vector database client, RAG API, and MC
 
 ### What Works
 - **Core classes**: `VectorClient`, `RagAPI`, `MilvusVectorDB`, `SentenceTransformerEmbedding`
-- **MCP Server**: Module-level FastMCP with 4 tools (add file/content, search, delete)  
+- **Enhanced Document Model**: Comprehensive metadata tracking (filename, file_type, ingestion_timestamp, chunk_count, file_size, chunk_position, vector_id, embedding_status)
+- **MCP Server**: Module-level FastMCP with 6 tools (add file/content, search, delete, get_document_metadata, list_documents_with_metadata)
+- **Metadata Integration**: Automatic metadata capture during document ingestion with Milvus schema extensions
 - **DI Container**: Basic production container only
-- **Testing**: Pytest fixtures, comprehensive markers
+- **Testing**: Pytest fixtures, comprehensive markers, metadata-specific test coverage
 
 ### Missing/Broken
 - **No factory functions**: No `create_rag_api()`, `create_vector_client()` etc.

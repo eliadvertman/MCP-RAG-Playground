@@ -5,6 +5,7 @@ A SOLID-compliant vector database client with RAG capabilities and MCP server in
 ## Features
 
 - **MCP Server integration** - Model Context Protocol support for seamless LLM integration
+- **Enhanced Document Metadata Tracking** - Comprehensive tracking of document lifecycle (filename, type, ingestion timestamp, chunk count, file size, chunk position, vector ID, embedding status)
 - **High-level RAG API** with simplified `add_documents` and `query` methods supporting mixed input types
 - **SOLID-compliant architecture** with abstract interfaces and dependency injection  
 - **Enhanced search accuracy** with score filtering and query preprocessing
@@ -95,6 +96,8 @@ uv run python -m mcp_rag_playground.mcp.rag_server
 - `add_document_from_file(file_path)` - Add documents from file paths
 - `add_document_from_content(content, metadata)` - Add documents from raw content
 - `search_knowledge_base(query, limit, min_score)` - Search for relevant documents
+- `get_document_metadata(document_id)` - Retrieve comprehensive metadata for a specific document
+- `list_documents_with_metadata(limit, file_type_filter)` - List all documents with metadata and statistics
 - `delete_collection()` - Remove all documents (⚠️ destructive)
 
 **Claude Desktop Integration:**

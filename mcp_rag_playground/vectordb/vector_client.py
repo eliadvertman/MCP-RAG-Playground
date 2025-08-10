@@ -4,6 +4,8 @@ Main vector database client with upload and query capabilities.
 
 from typing import List, Dict, Any
 import re
+import os
+from datetime import datetime
 from .vector_db_interface import VectorDBInterface, SearchResult
 from .embedding_service import EmbeddingService
 from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
@@ -61,6 +63,12 @@ class VectorClient:
             logger.info(f"Starting upload of file: {file_path}")
             self._ensure_collection_exists()
             
+            # Gather file metadata
+            filename = os.path.basename(file_path)
+            file_type = os.path.splitext(filename)[1].lower()
+            file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+            ingestion_timestamp = datetime.now()
+            
             documents = self.document_processor.process_file(file_path)
             
             if not documents:
@@ -68,8 +76,24 @@ class VectorClient:
                 return False
             
             logger.info(f"Extracted {len(documents)} documents from {file_path}")
+            
+            # Enhance documents with metadata
+            chunk_count = len(documents)
+            for i, doc in enumerate(documents):
+                doc.filename = filename
+                doc.file_type = file_type
+                doc.ingestion_timestamp = ingestion_timestamp
+                doc.chunk_count = chunk_count
+                doc.file_size = file_size
+                doc.chunk_position = i
+                doc.embedding_status = "pending"
+            
             texts = [doc.content for doc in documents]
             embeddings = self.embedding_service.embed_texts(texts)
+            
+            # Update embedding status to completed
+            for doc in documents:
+                doc.embedding_status = "completed"
             
             success = self.vector_db.insert_documents(
                 self.collection_name, 

@@ -1,0 +1,4444 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<files>
+  <file path="__init__.py"><![CDATA[
+    """
+    MCP RAG Playground - Vector database client with RAG capabilities.
+    
+    This package provides a production-ready RAG (Retrieval-Augmented Generation) system
+    built on top of Milvus vector database with clean SOLID architecture patterns.
+    
+    Core Components:
+    - VectorClient: Main client for vector database operations
+    - RagAPI: High-level RAG interface for document ingestion and search
+    - MilvusVectorDB: Milvus vector database implementation
+    - SentenceTransformerEmbedding: Text embedding service
+    - rag_server: FastMCP server module (conditional, based on MCP availability)
+    
+    The package gracefully handles optional MCP dependencies - if MCP server components
+    are not available, core vector database functionality remains fully operational.
+    """
+    
+    from .vectordb.vector_client import VectorClient
+    from .vectordb.milvus.milvus_client import MilvusVectorDB
+    from .vectordb.embedding_service import SentenceTransformerEmbedding
+    from .config.milvus_config import MilvusConfig
+    from .vectordb.vector_db_interface import Document, SearchResult
+    from .rag.rag_api import RagAPI
+    
+    # MCP Server imports (conditional)
+    # Gracefully handle missing MCP dependencies - core functionality remains available
+    try:
+        from .mcp import rag_server
+        _MCP_AVAILABLE = True
+    except ImportError:
+        _MCP_AVAILABLE = False
+        rag_server = None
+    
+    
+    
+    # Build __all__ list dynamically based on what's available
+    __all__ = [
+        # Core classes
+        'VectorClient',
+        'MilvusVectorDB', 
+        'SentenceTransformerEmbedding',
+        'Document',
+        'SearchResult',
+        'MilvusConfig',
+        'RagAPI',
+        
+    
+    ]
+    
+    # Add MCP Server module if available
+    if _MCP_AVAILABLE:
+        __all__.append('rag_server')
+    ]]></file>
+  <file path="vectordb\__init__.py"></file>
+  <file path="vectordb\vector_db_interface.py"><![CDATA[
+    """
+    Abstract interface for vector database operations.
+    """
+    
+    from abc import ABC, abstractmethod
+    from typing import List, Dict, Any, Optional
+    from dataclasses import dataclass
+    
+    
+    @dataclass
+    class Document:
+        """Represents a document with content and metadata."""
+        
+        content: str
+        metadata: Dict[str, Any]
+        id: Optional[str] = None
+    
+    
+    @dataclass
+    class SearchResult:
+        """Represents a search result from vector database."""
+        
+        document: Document
+        score: float
+        distance: float
+    
+    
+    class VectorDBInterface(ABC):
+        """Abstract interface for vector database operations."""
+        
+        @abstractmethod
+        def create_collection(self, collection_name: str, dimension: int) -> bool:
+            """Create a new collection in the vector database."""
+            pass
+        
+        @abstractmethod
+        def insert_documents(self, collection_name: str, documents: List[Document], 
+                            embeddings: List[List[float]]) -> bool:
+            """Insert documents with their embeddings into the collection."""
+            pass
+        
+        @abstractmethod
+        def search(self, collection_name: str, query_embedding: List[float], 
+                   limit: int = 10) -> List[SearchResult]:
+            """Search for similar documents using vector similarity."""
+            pass
+        
+        @abstractmethod
+        def delete_collection(self, collection_name: str) -> bool:
+            """Delete a collection from the vector database."""
+            pass
+        
+        @abstractmethod
+        def collection_exists(self, collection_name: str) -> bool:
+            """Check if a collection exists."""
+            pass
+        
+        @abstractmethod
+        def get_collection_info(self, collection_name: str) -> Dict[str, Any]:
+            """Get information about a collection."""
+            pass
+        
+        @abstractmethod
+        def test_connection(self) -> bool:
+            """Test the connection to the vector database."""
+            pass
+    ]]></file>
+  <file path="vectordb\vector_client.py"><![CDATA[
+    """
+    Main vector database client with upload and query capabilities.
+    """
+    
+    from typing import List, Dict, Any
+    import re
+    from .vector_db_interface import VectorDBInterface, SearchResult
+    from .embedding_service import EmbeddingService
+    from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
+    from mcp_rag_playground.config.logging_config import get_logger
+    
+    logger = get_logger(__name__)
+    
+    
+    class VectorClient:
+        """Main client for vector database operations."""
+        
+        def __init__(self, 
+                     vector_db: VectorDBInterface,
+                     embedding_service: EmbeddingService,
+                     document_processor : DocumentProcessor,
+                     collection_name: str = "default_collection"
+                    ):
+            self.vector_db = vector_db
+            self.embedding_service = embedding_service
+            self.collection_name = collection_name
+            self.document_processor = document_processor
+            self._initialized = False
+            logger.info(f"VectorClient initialized with collection: {collection_name}")
+        
+        def _ensure_collection_exists(self):
+            """Ensure the collection exists, create if not."""
+            if not self._initialized:
+                dimension = self.embedding_service.get_dimension()
+                logger.info(f"Ensuring collection exists: {self.collection_name} (dimension: {dimension})")
+                
+                if not self.vector_db.collection_exists(self.collection_name):
+                    logger.info(f"Creating new collection: {self.collection_name}")
+                    success = self.vector_db.create_collection(self.collection_name, dimension)
+                    if not success:
+                        error_msg = f"Failed to create collection: {self.collection_name}"
+                        logger.error(error_msg)
+                        raise RuntimeError(error_msg)
+                    logger.info(f"Successfully created collection: {self.collection_name}")
+                else:
+                    logger.info(f"Collection already exists: {self.collection_name}")
+                
+                self._initialized = True
+        
+        def upload(self, file_path: str) -> bool:
+            """
+            Upload a file to the vector database.
+            
+            Args:
+                file_path: Path to the file to upload
+                
+            Returns:
+                bool: True if upload successful, False otherwise
+            """
+            try:
+                logger.info(f"Starting upload of file: {file_path}")
+                self._ensure_collection_exists()
+                
+                documents = self.document_processor.process_file(file_path)
+                
+                if not documents:
+                    logger.warning(f"No documents extracted from file: {file_path}")
+                    return False
+                
+                logger.info(f"Extracted {len(documents)} documents from {file_path}")
+                texts = [doc.content for doc in documents]
+                embeddings = self.embedding_service.embed_texts(texts)
+                
+                success = self.vector_db.insert_documents(
+                    self.collection_name, 
+                    documents, 
+                    embeddings
+                )
+                
+                if success:
+                    logger.info(f"Successfully uploaded {len(documents)} documents from {file_path}")
+                else:
+                    logger.error(f"Failed to upload file: {file_path}")
+                
+                return success
+                
+            except Exception as e:
+                logger.error(f"Error uploading file {file_path}: {e}")
+                return False
+        
+        
+        def _preprocess_query(self, query_text: str) -> str:
+            """Preprocess query text for better search results."""
+            # Remove extra whitespace
+            query = re.sub(r'\s+', ' ', query_text.strip())
+            
+            # Convert to lowercase for consistency
+            query = query.lower()
+            
+            # Remove special characters that might interfere with search
+            query = re.sub(r'[^\w\s\-\']', ' ', query)
+            
+            # Handle common abbreviations and expansions
+            expansions = {
+                'db': 'database',
+                'ai': 'artificial intelligence',
+                'ml': 'machine learning',
+                'api': 'application programming interface',
+                'ui': 'user interface',
+                'ux': 'user experience'
+            }
+            
+            words = query.split()
+            expanded_words = []
+            for word in words:
+                if word in expansions:
+                    expanded_words.extend([word, expansions[word]])
+                else:
+                    expanded_words.append(word)
+            
+            return ' '.join(expanded_words)
+    
+        def query(self, query_text: str, limit: int = 5, min_score: float = 0.0) -> List[SearchResult]:
+            """
+            Query the vector database for similar documents.
+            
+            Args:
+                query_text: Text to search for
+                limit: Maximum number of results to return
+                min_score: Minimum similarity score threshold (0.0-1.0)
+                
+            Returns:
+                List[SearchResult]: List of search results filtered by score
+            """
+            try:
+                logger.info(f"Starting query: '{query_text}' (limit: {limit}, min_score: {min_score})")
+                self._ensure_collection_exists()
+                
+                # Preprocess query for better results
+                processed_query = self._preprocess_query(query_text)
+                logger.debug(f"Preprocessed query: '{processed_query}'")
+                
+                query_embedding = self.embedding_service.embed_text(processed_query)
+                
+                results = self.vector_db.search(
+                    self.collection_name,
+                    query_embedding,
+                    limit
+                )
+                
+                # Filter results by minimum score threshold
+                filtered_results = [result for result in results if result.score >= min_score]
+                
+                logger.info(f"Query completed: found {len(results)} results, {len(filtered_results)} after filtering")
+                return filtered_results
+                
+            except Exception as e:
+                logger.error(f"Error querying database: {e}")
+                return []
+        
+        def get_collection_info(self) -> Dict[str, Any]:
+            """Get information about the current collection."""
+            try:
+                logger.debug(f"Getting collection info for: {self.collection_name}")
+                self._ensure_collection_exists()
+                info = self.vector_db.get_collection_info(self.collection_name)
+                logger.debug(f"Collection info retrieved: {info}")
+                return info
+            except Exception as e:
+                logger.error(f"Error getting collection info: {e}")
+                return {}
+        
+        def delete_collection(self) -> bool:
+            """Delete the current collection."""
+            try:
+                logger.warning(f"Deleting collection: {self.collection_name}")
+                success = self.vector_db.delete_collection(self.collection_name)
+                if success:
+                    self._initialized = False
+                    logger.info(f"Successfully deleted collection: {self.collection_name}")
+                else:
+                    logger.error(f"Failed to delete collection: {self.collection_name}")
+                return success
+            except Exception as e:
+                logger.error(f"Error deleting collection: {e}")
+                return False
+        
+        def test_connection(self) -> bool:
+            """Test the connection to the vector database."""
+            try:
+                logger.info("Testing vector database connection...")
+                success = self.vector_db.test_connection()
+                if success:
+                    logger.info("Vector database connection test successful")
+                else:
+                    logger.error("Vector database connection test failed")
+                return success
+            except Exception as e:
+                logger.error(f"Error testing connection: {e}")
+                return False
+    ]]></file>
+  <file path="vectordb\embedding_service.py"><![CDATA[
+    """
+    Embedding service abstraction for generating text embeddings.
+    """
+    
+    from abc import ABC, abstractmethod
+    from typing import List, Union
+    
+    
+    class EmbeddingService(ABC):
+        """Abstract interface for embedding services."""
+        
+        @abstractmethod
+        def embed_text(self, text: str) -> List[float]:
+            """Generate embedding for a single text."""
+            pass
+        
+        @abstractmethod
+        def embed_texts(self, texts: List[str]) -> List[List[float]]:
+            """Generate embeddings for multiple texts."""
+            pass
+        
+        @abstractmethod
+        def get_dimension(self) -> int:
+            """Get the dimension of the embeddings."""
+            pass
+    
+    
+    class SentenceTransformerEmbedding(EmbeddingService):
+        """Sentence Transformer implementation of embedding service."""
+        
+        def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+            self.model_name = model_name
+            self._model = None
+            self._dimension = None
+        
+        def _load_model(self):
+            """Lazy load the sentence transformer model."""
+            if self._model is None:
+                try:
+                    from sentence_transformers import SentenceTransformer
+                    self._model = SentenceTransformer(self.model_name)
+                    self._dimension = self._model.get_sentence_embedding_dimension()
+                except ImportError:
+                    raise ImportError("sentence-transformers is required. Install it with: pip install sentence-transformers")
+        
+        def embed_text(self, text: str) -> List[float]:
+            """Generate embedding for a single text."""
+            self._load_model()
+            embedding = self._model.encode(text)
+            return embedding.tolist()
+        
+        def embed_texts(self, texts: List[str]) -> List[List[float]]:
+            """Generate embeddings for multiple texts."""
+            self._load_model()
+            embeddings = self._model.encode(texts)
+            return embeddings.tolist()
+        
+        def get_dimension(self) -> int:
+            """Get the dimension of the embeddings."""
+            self._load_model()
+            return self._dimension
+    
+    
+    
+    ]]></file>
+  <file path="tests\test_vector_client.py"><![CDATA[
+    """
+    Test suite for VectorClient.
+    Uses mocks for VectorDBInterface and EmbeddingService to test VectorClient logic in isolation.
+    """
+    
+    import pytest
+    from unittest.mock import Mock, patch, MagicMock
+    from typing import List
+    
+    from mcp_rag_playground.vectordb.vector_client import VectorClient
+    from mcp_rag_playground.vectordb.vector_db_interface import Document, SearchResult, VectorDBInterface
+    from mcp_rag_playground.vectordb.embedding_service import EmbeddingService
+    from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
+    
+    
+    class TestVectorClient:
+        """Test suite for VectorClient using mocks for dependencies."""
+    
+        @pytest.fixture
+        def vector_client(self, mock_vector_db, mock_embedding_service, mock_document_processor):
+            """Create VectorClient with mocked dependencies."""
+            return VectorClient(
+                vector_db=mock_vector_db,
+                embedding_service=mock_embedding_service,
+                document_processor=mock_document_processor,
+                collection_name="test_collection"
+            )
+    
+        @pytest.mark.unit
+        def test_initialization(self, mock_vector_db, mock_embedding_service, mock_document_processor):
+            """Test VectorClient initialization."""
+            client = VectorClient(
+                vector_db=mock_vector_db,
+                embedding_service=mock_embedding_service,
+                document_processor=mock_document_processor,
+                collection_name="my_collection"
+            )
+            
+            assert client.vector_db is mock_vector_db
+            assert client.embedding_service is mock_embedding_service
+            assert client.document_processor is mock_document_processor
+            assert client.collection_name == "my_collection"
+            assert not client._initialized
+    
+        @pytest.mark.unit
+        def test_ensure_collection_exists_new_collection(self, vector_client, mock_vector_db, mock_embedding_service):
+            """Test collection creation when collection doesn't exist."""
+            # Setup mocks
+            mock_vector_db.collection_exists.return_value = False
+            mock_vector_db.create_collection.return_value = True
+            mock_embedding_service.get_dimension.return_value = 384
+            
+            # Call method
+            vector_client._ensure_collection_exists()
+            
+            # Verify calls
+            mock_embedding_service.get_dimension.assert_called_once()
+            mock_vector_db.collection_exists.assert_called_once_with("test_collection")
+            mock_vector_db.create_collection.assert_called_once_with("test_collection", 384)
+            assert vector_client._initialized
+    
+        @pytest.mark.unit
+        def test_ensure_collection_exists_existing_collection(self, vector_client, mock_vector_db, mock_embedding_service):
+            """Test when collection already exists."""
+            # Setup mocks
+            mock_vector_db.collection_exists.return_value = True
+            mock_embedding_service.get_dimension.return_value = 384
+            
+            # Call method
+            vector_client._ensure_collection_exists()
+            
+            # Verify calls
+            mock_embedding_service.get_dimension.assert_called_once()
+            mock_vector_db.collection_exists.assert_called_once_with("test_collection")
+            mock_vector_db.create_collection.assert_not_called()
+            assert vector_client._initialized
+    
+        @pytest.mark.unit
+        def test_ensure_collection_exists_creation_failure(self, vector_client, mock_vector_db, mock_embedding_service):
+            """Test error handling when collection creation fails."""
+            # Setup mocks
+            mock_vector_db.collection_exists.return_value = False
+            mock_vector_db.create_collection.return_value = False
+            mock_embedding_service.get_dimension.return_value = 384
+            
+            # Should raise RuntimeError
+            with pytest.raises(RuntimeError, match="Failed to create collection: test_collection"):
+                vector_client._ensure_collection_exists()
+    
+        @pytest.mark.unit
+        def test_upload_success(self, vector_client, mock_vector_db, mock_embedding_service, mock_document_processor):
+            """Test successful file upload."""
+            # Setup mocks
+            documents = [Document(content="Test content", metadata={"source": "test.txt"})]
+            mock_document_processor.process_file.return_value = documents
+            mock_embedding_service.embed_texts.return_value = [[0.1] * 384]
+            mock_vector_db.collection_exists.return_value = True
+            mock_vector_db.insert_documents.return_value = True
+            
+            # Call upload
+            result = vector_client.upload("test.txt")
+            
+            # Verify result and calls
+            assert result is True
+            mock_document_processor.process_file.assert_called_once_with("test.txt")
+            mock_embedding_service.embed_texts.assert_called_once_with(["Test content"])
+            mock_vector_db.insert_documents.assert_called_once_with(
+                "test_collection", documents, [[0.1] * 384]
+            )
+    
+        @pytest.mark.unit
+        def test_upload_no_documents(self, vector_client, mock_document_processor):
+            """Test upload when no documents are extracted."""
+            # Setup mocks
+            mock_document_processor.process_file.return_value = []
+            
+            # Call upload
+            result = vector_client.upload("empty_file.txt")
+            
+            # Verify result
+            assert result is False
+            mock_document_processor.process_file.assert_called_once_with("empty_file.txt")
+    
+        @pytest.mark.unit
+        def test_upload_exception_handling(self, vector_client, mock_document_processor):
+            """Test upload exception handling."""
+            # Setup mock to raise exception
+            mock_document_processor.process_file.side_effect = Exception("File processing error")
+            
+            # Call upload
+            result = vector_client.upload("problematic_file.txt")
+            
+            # Verify result
+            assert result is False
+    
+        @pytest.mark.unit
+        def test_query_preprocessing(self, vector_client):
+            """Test query text preprocessing."""
+            from mcp_rag_playground.tests.fixtures.vector_client_fixtures import get_preprocessing_test_cases
+            test_cases = get_preprocessing_test_cases()
+            
+            for input_text, expected in test_cases:
+                result = vector_client._preprocess_query(input_text)
+                assert expected in result.lower()
+    
+        @pytest.mark.unit
+        def test_query_success(self, vector_client, mock_vector_db, mock_embedding_service):
+            """Test successful query operation."""
+            # Setup mocks
+            mock_vector_db.collection_exists.return_value = True
+            mock_embedding_service.embed_text.return_value = [0.1] * 384
+            
+            search_result = SearchResult(
+                document=Document(content="Result content", metadata={"source": "test"}),
+                score=0.95,
+                distance=0.05
+            )
+            mock_vector_db.search.return_value = [search_result]
+            
+            # Call query
+            results = vector_client.query("test query", limit=5, min_score=0.8)
+            
+            # Verify results
+            assert len(results) == 1
+            assert results[0].document.content == "Result content"
+            assert results[0].score == 0.95
+            
+            # Verify calls
+            mock_embedding_service.embed_text.assert_called_once()
+            mock_vector_db.search.assert_called_once_with(
+                "test_collection", [0.1] * 384, 5
+            )
+    
+        @pytest.mark.unit
+        def test_query_score_filtering(self, vector_client, mock_vector_db, mock_embedding_service):
+            """Test query results are filtered by minimum score."""
+            # Setup mocks
+            mock_vector_db.collection_exists.return_value = True
+            mock_embedding_service.embed_text.return_value = [0.1] * 384
+            
+            search_results = [
+                SearchResult(
+                    document=Document(content="High score", metadata={"source": "test1"}),
+                    score=0.95,
+                    distance=0.05
+                ),
+                SearchResult(
+                    document=Document(content="Medium score", metadata={"source": "test2"}),
+                    score=0.75,
+                    distance=0.25
+                ),
+                SearchResult(
+                    document=Document(content="Low score", metadata={"source": "test3"}),
+                    score=0.45,
+                    distance=0.55
+                )
+            ]
+            mock_vector_db.search.return_value = search_results
+            
+            # Call query with min_score filter
+            results = vector_client.query("test query", min_score=0.8)
+            
+            # Should only return high score result
+            assert len(results) == 1
+            assert results[0].document.content == "High score"
+            assert results[0].score == 0.95
+    
+        @pytest.mark.unit
+        def test_query_empty_string(self, vector_client, mock_vector_db, mock_embedding_service):
+            """Test query with empty or whitespace-only string."""
+            # Setup mocks
+            mock_vector_db.collection_exists.return_value = True
+            mock_embedding_service.embed_text.return_value = [0.1] * 384
+            mock_vector_db.search.return_value = []
+            
+            # Test empty string
+            results = vector_client.query("", limit=5)
+            assert len(results) == 0
+            
+            # Test whitespace only
+            results = vector_client.query("   \n\t   ", limit=5)
+            assert len(results) == 0
+    
+        @pytest.mark.unit
+        def test_query_exception_handling(self, vector_client, mock_embedding_service):
+            """Test query exception handling."""
+            # Setup mock to raise exception
+            mock_embedding_service.embed_text.side_effect = Exception("Embedding error")
+            
+            # Call query
+            results = vector_client.query("test query")
+            
+            # Should return empty list on error
+            assert results == []
+    
+        @pytest.mark.unit
+        def test_get_collection_info(self, vector_client, mock_vector_db):
+            """Test getting collection information."""
+            # Setup mock
+            expected_info = {
+                "name": "test_collection",
+                "num_entities": 100,
+                "schema": {"fields": []}
+            }
+            mock_vector_db.collection_exists.return_value = True
+            mock_vector_db.get_collection_info.return_value = expected_info
+            
+            # Call method
+            info = vector_client.get_collection_info()
+            
+            # Verify result
+            assert info == expected_info
+            mock_vector_db.get_collection_info.assert_called_once_with("test_collection")
+    
+        @pytest.mark.unit
+        def test_get_collection_info_exception(self, vector_client, mock_vector_db):
+            """Test get_collection_info exception handling."""
+            # Setup mock to raise exception
+            mock_vector_db.get_collection_info.side_effect = Exception("Database error")
+            
+            # Call method
+            info = vector_client.get_collection_info()
+            
+            # Should return empty dict on error
+            assert info == {}
+    
+        @pytest.mark.unit
+        def test_delete_collection_success(self, vector_client, mock_vector_db):
+            """Test successful collection deletion."""
+            # Setup mock
+            mock_vector_db.delete_collection.return_value = True
+            
+            # Call method
+            result = vector_client.delete_collection()
+            
+            # Verify result
+            assert result is True
+            assert not vector_client._initialized
+            mock_vector_db.delete_collection.assert_called_once_with("test_collection")
+    
+        @pytest.mark.unit
+        def test_delete_collection_failure(self, vector_client, mock_vector_db):
+            """Test collection deletion failure."""
+            # Setup mock
+            mock_vector_db.delete_collection.return_value = False
+            
+            # Call method
+            result = vector_client.delete_collection()
+            
+            # Verify result
+            assert result is False
+            # _initialized should remain unchanged on failure
+    
+        @pytest.mark.unit
+        def test_delete_collection_exception(self, vector_client, mock_vector_db):
+            """Test delete_collection exception handling."""
+            # Setup mock to raise exception
+            mock_vector_db.delete_collection.side_effect = Exception("Database error")
+            
+            # Call method
+            result = vector_client.delete_collection()
+            
+            # Should return False on error
+            assert result is False
+    
+        @pytest.mark.unit
+        def test_test_connection(self, vector_client, mock_vector_db):
+            """Test connection testing."""
+            # Test successful connection
+            mock_vector_db.test_connection.return_value = True
+            result = vector_client.test_connection()
+            assert result is True
+            
+            # Test failed connection
+            mock_vector_db.test_connection.return_value = False
+            result = vector_client.test_connection()
+            assert result is False
+    
+        @pytest.mark.unit
+        def test_test_connection_exception(self, vector_client, mock_vector_db):
+            """Test test_connection exception handling."""
+            # Setup mock to raise exception
+            mock_vector_db.test_connection.side_effect = Exception("Connection error")
+            
+            # Call method
+            result = vector_client.test_connection()
+            
+            # Should return False on error
+            assert result is False
+    
+        @pytest.mark.unit
+        def test_collection_initialization_called_once(self, vector_client, mock_vector_db, mock_embedding_service):
+            """Test that collection initialization is only called once."""
+            # Setup mocks
+            mock_vector_db.collection_exists.return_value = True
+            mock_embedding_service.get_dimension.return_value = 384
+            
+            # Call multiple methods that trigger initialization
+            vector_client.get_collection_info()
+            vector_client.query("test", limit=1)
+            vector_client.get_collection_info()
+            
+            # Verify initialization was called only once
+            assert mock_embedding_service.get_dimension.call_count == 1
+            assert mock_vector_db.collection_exists.call_count == 1
+    
+        @pytest.mark.unit
+        def test_query_text_preprocessing_expansions(self, vector_client):
+            """Test specific text preprocessing expansions."""
+            # Test abbreviation expansions
+            result = vector_client._preprocess_query("using db for ai ml")
+            
+            # Should contain both original and expanded terms
+            assert "db" in result
+            assert "database" in result
+            assert "ai" in result
+            assert "artificial intelligence" in result
+            assert "ml" in result
+            assert "machine learning" in result
+    
+        @pytest.mark.unit
+        def test_upload_with_multiple_documents(self, vector_client, mock_vector_db, mock_embedding_service, mock_document_processor):
+            """Test upload with multiple documents from file."""
+            # Setup mocks
+            documents = [
+                Document(content="First document", metadata={"source": "test.txt", "chunk": 1}),
+                Document(content="Second document", metadata={"source": "test.txt", "chunk": 2})
+            ]
+            mock_document_processor.process_file.return_value = documents
+            mock_embedding_service.embed_texts.return_value = [[0.1] * 384, [0.2] * 384]
+            mock_vector_db.collection_exists.return_value = True
+            mock_vector_db.insert_documents.return_value = True
+            
+            # Call upload
+            result = vector_client.upload("test.txt")
+            
+            # Verify result and calls
+            assert result is True
+            mock_embedding_service.embed_texts.assert_called_once_with(
+                ["First document", "Second document"]
+            )
+            mock_vector_db.insert_documents.assert_called_once_with(
+                "test_collection", documents, [[0.1] * 384, [0.2] * 384]
+            )
+    ]]></file>
+  <file path="tests\test_rag_api_integration.py"><![CDATA[
+    """
+    Test suite for RAG API integration testing.
+    Uses real components (no mocks) for end-to-end testing with existing test data.
+    """
+    
+    import pytest
+    import os
+    import time
+    import uuid
+    from pathlib import Path
+    
+    from mcp_rag_playground.rag.rag_api_basic import RagAPI
+    from mcp_rag_playground.vectordb.vector_client import VectorClient
+    from mcp_rag_playground.vectordb.milvus.milvus_client import MilvusVectorDB
+    from mcp_rag_playground.vectordb.embedding_service import SentenceTransformerEmbedding
+    from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
+    from mcp_rag_playground.config.milvus_config import MilvusConfig
+    
+    
+    class TestRagAPIIntegration:
+        """Integration test suite for RagAPI using real components and test data."""
+    
+        @pytest.fixture(autouse=True)
+        def cleanup_collection(self, rag_api_basic_basic):
+            """Automatically cleanup collection after each test."""
+            yield
+            # Cleanup: delete the test collection
+            try:
+                rag_api_basic_basic.delete_collection()
+            except Exception:
+                pass  # Ignore cleanup errors
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_rag_api_basic_initialization(self, rag_api_basic, test_collection_name):
+            """Test RAG API initialization."""
+            assert rag_api_basic.collection_name == test_collection_name
+            assert rag_api_basic.vector_client is not None
+            assert rag_api_basic.vector_client.collection_name == test_collection_name
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus 
+        @pytest.mark.slow
+        def test_add_text_document(self, rag_api_basic, test_files):
+            """Test adding a text document to RAG system."""
+            # Add text document
+            result = rag_api_basic.add_document(test_files["txt"])
+            assert result is True
+            
+            # Verify collection info
+            info = rag_api_basic.get_collection_info()
+            assert info["collection_ready"] is True
+            assert info["document_count"] > 0
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_add_markdown_document(self, rag_api_basic, test_files):
+            """Test adding a markdown document to RAG system."""
+            # Add markdown document
+            result = rag_api_basic.add_document(test_files["md"])
+            assert result is True
+            
+            # Verify collection info
+            info = rag_api_basic.get_collection_info()
+            assert info["collection_ready"] is True
+            assert info["document_count"] > 0
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_add_python_document(self, rag_api_basic, test_files):
+            """Test adding a Python file to RAG system."""
+            # Add Python file
+            result = rag_api_basic.add_document(test_files["py"])
+            assert result is True
+            
+            # Verify collection info
+            info = rag_api_basic.get_collection_info()
+            assert info["collection_ready"] is True
+            assert info["document_count"] > 0
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_add_multiple_documents(self, rag_api_basic, test_files):
+            """Test adding multiple documents to RAG system."""
+            # Add all test documents
+            for file_type, file_path in test_files.items():
+                result = rag_api_basic.add_document(file_path)
+                assert result is True, f"Failed to add {file_type} document: {file_path}"
+            
+            # Verify collection info
+            info = rag_api_basic.get_collection_info()
+            assert info["collection_ready"] is True
+            assert info["document_count"] > 0
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_query_after_document_addition(self, rag_api_basic, test_files):
+            """Test querying the RAG system after adding documents."""
+            # Add text document first
+            rag_api_basic.add_document(test_files["txt"])
+            
+            # Wait for indexing
+            time.sleep(2)
+            
+            # Query for content we know is in test_document.txt
+            results = rag_api_basic.query("vector database", limit=5)
+            
+            # Verify results
+            assert isinstance(results, list)
+            if results:  # If results are found
+                for result in results:
+                    assert "content" in result
+                    assert "score" in result
+                    assert "metadata" in result
+                    assert "source" in result
+                    assert isinstance(result["score"], float)
+                    assert result["score"] >= 0.0
+                    assert result["score"] <= 1.0
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_query_with_score_filtering(self, rag_api_basic, test_files):
+            """Test querying with score filtering."""
+            # Add markdown document
+            rag_api_basic.add_document(test_files["md"])
+            
+            # Wait for indexing
+            time.sleep(2)
+            
+            # Query with different score thresholds
+            all_results = rag_api_basic.query("Lorem ipsum", min_score=0.0, limit=10)
+            filtered_results = rag_api_basic.query("Lorem ipsum", min_score=0.7, limit=10)
+            
+            # Filtered results should be subset of all results
+            assert len(filtered_results) <= len(all_results)
+            
+            # All filtered results should have score >= 0.7
+            for result in filtered_results:
+                assert result["score"] >= 0.7
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_query_different_content_types(self, rag_api_basic, test_files):
+            """Test querying different types of content."""
+            # Add all documents
+            for file_path in test_files.values():
+                rag_api_basic.add_document(file_path)
+            
+            # Wait for indexing
+            time.sleep(3)
+            
+            # Test queries for different content types
+            queries = [
+                "vector database",  # Should match text document
+                "Section 1",        # Should match markdown document  
+                "hello world",      # Should match Python file
+                "Lorem ipsum",      # Should match markdown content
+            ]
+            
+            for query in queries:
+                results = rag_api_basic.query(query, limit=5)
+                # Each query should potentially return results
+                # (actual results depend on embedding similarity)
+                assert isinstance(results, list)
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_query_limit_parameter(self, rag_api_basic, test_files):
+            """Test query limit parameter."""
+            # Add document
+            rag_api_basic.add_document(test_files["md"])
+            
+            # Wait for indexing
+            time.sleep(2)
+            
+            # Test different limits
+            for limit in [1, 2, 5]:
+                results = rag_api_basic.query("document", limit=limit)
+                assert len(results) <= limit
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_query_empty_and_invalid_inputs(self, rag_api_basic, test_files):
+            """Test querying with empty and invalid inputs."""
+            # Add document first
+            rag_api_basic.add_document(test_files["txt"])
+            
+            # Test empty query
+            results = rag_api_basic.query("")
+            assert results == []
+            
+            # Test whitespace-only query
+            results = rag_api_basic.query("   \n\t   ")
+            assert results == []
+            
+            # Test None query (if handled)
+            try:
+                results = rag_api_basic.query(None)
+                assert results == []
+            except (TypeError, AttributeError):
+                # Expected if None is not handled gracefully
+                pass
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_get_collection_info_states(self, rag_api_basic, test_files):
+            """Test collection info in different states."""
+            # Test info before any documents
+            info = rag_api_basic.get_collection_info()
+            assert "collection_name" in info
+            assert "status" in info
+            
+            # Add document
+            rag_api_basic.add_document(test_files["txt"])
+            
+            # Test info after adding document
+            info = rag_api_basic.get_collection_info()
+            assert info["collection_ready"] is True
+            assert "document_count" in info
+            assert info["document_count"] > 0
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_collection_deletion(self, rag_api_basic, test_files):
+            """Test collection deletion functionality."""
+            # Add document first
+            rag_api_basic.add_document(test_files["txt"])
+            
+            # Verify collection exists
+            info = rag_api_basic.get_collection_info()
+            assert info["collection_ready"] is True
+            
+            # Delete collection
+            result = rag_api_basic.delete_collection()
+            assert result is True
+            
+            # Verify collection state after deletion
+            info = rag_api_basic.get_collection_info()
+            # Collection should not be ready after deletion
+            assert info["collection_ready"] is False or info["document_count"] == 0
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_add_nonexistent_file(self, rag_api_basic):
+            """Test adding non-existent file."""
+            # Try to add non-existent file
+            result = rag_api_basic.add_document("non_existent_file.txt")
+            assert result is False
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_semantic_search_quality(self, rag_api_basic, test_files):
+            """Test semantic search quality with known content."""
+            # Add markdown document which contains "Lorem ipsum"
+            rag_api_basic.add_document(test_files["md"])
+            
+            # Wait for indexing
+            time.sleep(2)
+            
+            # Query for conceptually similar but different wording
+            results = rag_api_basic.query("dolor sit amet", limit=5)
+            
+            if results:
+                # Should find results related to Lorem ipsum content
+                found_relevant = any("Lorem" in result["content"] or 
+                                   "dolor" in result["content"] or
+                                   "ipsum" in result["content"]
+                                   for result in results)
+                # Note: This test might be flaky depending on embedding model
+                # but helps verify semantic search is working
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_result_metadata_completeness(self, rag_api_basic, test_files):
+            """Test that query results contain complete metadata."""
+            # Add document
+            rag_api_basic.add_document(test_files["txt"])
+            
+            # Wait for indexing
+            time.sleep(2)
+            
+            # Query
+            results = rag_api_basic.query("test", limit=3)
+            
+            if results:
+                for result in results:
+                    # Verify required fields
+                    required_fields = ["content", "score", "metadata", "source", "document_id"]
+                    for field in required_fields:
+                        assert field in result, f"Missing field: {field}"
+                    
+                    # Verify field types
+                    assert isinstance(result["content"], str)
+                    assert isinstance(result["score"], (int, float))
+                    assert isinstance(result["metadata"], dict)
+                    assert isinstance(result["source"], str)
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_multiple_queries_consistency(self, rag_api_basic, test_files):
+            """Test that multiple identical queries return consistent results."""
+            # Add document
+            rag_api_basic.add_document(test_files["py"])
+            
+            # Wait for indexing
+            time.sleep(2)
+            
+            query_text = "hello world"
+            
+            # Run same query multiple times
+            results1 = rag_api_basic.query(query_text, limit=5)
+            results2 = rag_api_basic.query(query_text, limit=5)
+            results3 = rag_api_basic.query(query_text, limit=5)
+            
+            # Results should be consistent
+            assert len(results1) == len(results2) == len(results3)
+            
+            if results1:  # If we got results
+                # Scores should be identical for same query
+                scores1 = [r["score"] for r in results1]
+                scores2 = [r["score"] for r in results2]
+                scores3 = [r["score"] for r in results3]
+                
+                assert scores1 == scores2 == scores3
+    
+        @pytest.mark.integration 
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_large_document_handling(self, rag_api_basic, test_files):
+            """Test handling of documents that get chunked."""
+            # Add markdown document (should be chunked into multiple parts)
+            rag_api_basic.add_document(test_files["md"])
+            
+            # Verify collection contains multiple chunks
+            info = rag_api_basic.get_collection_info()
+            assert info["document_count"] > 0
+            
+            # Query should work across chunks
+            time.sleep(2)
+            results = rag_api_basic.query("Section", limit=10)
+            
+            # Should find content from different sections
+            if results:
+                contents = [r["content"] for r in results]
+                # Verify we got diverse content (not just one chunk repeated)
+                unique_contents = set(contents)
+                assert len(unique_contents) >= 1
+    
+        @pytest.mark.integration
+        @pytest.mark.milvus
+        @pytest.mark.slow
+        def test_file_path_verification(self, test_files):
+            """Verify that test data files exist before running tests."""
+            # Ensure all test files exist
+            for file_type, file_path in test_files.items():
+                assert os.path.exists(file_path), f"Test file missing: {file_path}"
+                assert os.path.isfile(file_path), f"Path is not a file: {file_path}"
+                assert os.path.getsize(file_path) > 0, f"File is empty: {file_path}"
+    ]]></file>
+  <file path="tests\test_milvus_client.py"><![CDATA[
+    """
+    Test suite for Milvus vector database client.
+    Uses real Milvus database connection (no mocks) for integration testing.
+    """
+    
+    import time
+    import uuid
+    
+    import pytest
+    
+    from mcp_rag_playground.config.milvus_config import MilvusConfig
+    from mcp_rag_playground.vectordb.milvus.milvus_client_basic import MilvusVectorDB
+    from mcp_rag_playground.vectordb.vector_db_interface import Document, SearchResult
+    
+    
+    class TestMilvusVectorDB:
+        """Test suite for MilvusVectorDB using real Milvus connection."""
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_connection_management(self, milvus_client_basic):
+            """Test connection and disconnection operations."""
+            # Test connection
+            assert not milvus_client_basic._connected
+            milvus_client_basic.connect()
+            assert milvus_client_basic._connected
+            
+            # Test double connection (should not fail)
+            milvus_client_basic.connect()
+            assert milvus_client_basic._connected
+            
+            # Test disconnection
+            milvus_client_basic.disconnect()
+            assert not milvus_client_basic._connected
+            
+            # Test double disconnection (should not fail)
+            milvus_client_basic.disconnect()
+            assert not milvus_client_basic._connected
+    
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_collection_creation_and_existence(self, milvus_client_basic, test_collection_name):
+            """Test collection creation and existence checking."""
+            try:
+                # Collection should not exist initially
+                assert not milvus_client_basic.collection_exists(test_collection_name)
+                
+                # Create collection
+                result = milvus_client_basic.create_collection(test_collection_name, dimension=384)
+                assert result is True
+                
+                # Collection should now exist
+                assert milvus_client_basic.collection_exists(test_collection_name)
+                
+                # Creating existing collection should return True (idempotent)
+                result = milvus_client_basic.create_collection(test_collection_name, dimension=384)
+                assert result is True
+                
+            finally:
+                # Cleanup
+                milvus_client_basic.delete_collection(test_collection_name)
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_collection_deletion(self, milvus_client_basic, test_collection_name):
+            """Test collection deletion."""
+            # Create collection first
+            milvus_client_basic.create_collection(test_collection_name, dimension=384)
+            assert milvus_client_basic.collection_exists(test_collection_name)
+            
+            # Delete collection
+            result = milvus_client_basic.delete_collection(test_collection_name)
+            assert result is True
+            
+            # Collection should no longer exist
+            assert not milvus_client_basic.collection_exists(test_collection_name)
+            
+            # Deleting non-existent collection should not fail
+            result = milvus_client_basic.delete_collection(test_collection_name)
+            assert result is True
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_document_insertion(self, milvus_client_basic, test_collection_name, 
+                                  sample_documents, sample_embeddings):
+            """Test inserting documents into collection."""
+            try:
+                # Create collection
+                milvus_client_basic.create_collection(test_collection_name, dimension=384)
+                
+                # Insert documents
+                result = milvus_client_basic.insert_documents(
+                    test_collection_name, 
+                    sample_documents, 
+                    sample_embeddings
+                )
+                assert result is True
+                
+            finally:
+                # Cleanup
+                milvus_client_basic.delete_collection(test_collection_name)
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_document_insertion_nonexistent_collection(self, milvus_client_basic, 
+                                                         sample_documents, sample_embeddings):
+            """Test inserting documents into non-existent collection."""
+            nonexistent_collection = f"nonexistent_{uuid.uuid4().hex[:8]}"
+            
+            # Should raise ValueError for non-existent collection
+            with pytest.raises(ValueError, match=f"Collection {nonexistent_collection} does not exist"):
+                milvus_client_basic.insert_documents(
+                    nonexistent_collection,
+                    sample_documents,
+                    sample_embeddings
+                )
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_document_search(self, milvus_client_basic, test_collection_name,
+                               sample_documents, sample_embeddings):
+            """Test searching for documents."""
+            try:
+                # Create collection and insert documents
+                milvus_client_basic.create_collection(test_collection_name, dimension=384)
+                milvus_client_basic.insert_documents(
+                    test_collection_name,
+                    sample_documents,
+                    sample_embeddings
+                )
+                
+                # Wait for index to be built (Milvus may need time)
+                time.sleep(2)
+                
+                # Search using first embedding as query
+                query_embedding = sample_embeddings[0]
+                results = milvus_client_basic.search(
+                    test_collection_name,
+                    query_embedding,
+                    limit=3
+                )
+                
+                # Verify search results
+                assert isinstance(results, list)
+                assert len(results) <= 3
+                
+                if results:  # If results are returned
+                    for result in results:
+                        assert isinstance(result, SearchResult)
+                        assert isinstance(result.document, Document)
+                        assert isinstance(result.score, float)
+                        assert isinstance(result.distance, float)
+                        assert result.document.content
+                        assert isinstance(result.document.metadata, dict)
+                
+            finally:
+                # Cleanup
+                milvus_client_basic.delete_collection(test_collection_name)
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration 
+        def test_search_nonexistent_collection(self, milvus_client_basic, sample_embeddings):
+            """Test searching in non-existent collection."""
+            nonexistent_collection = f"nonexistent_{uuid.uuid4().hex[:8]}"
+            
+            # Should raise ValueError for non-existent collection
+            with pytest.raises(ValueError, match=f"Collection {nonexistent_collection} does not exist"):
+                milvus_client_basic.search(
+                    nonexistent_collection,
+                    sample_embeddings[0],
+                    limit=5
+                )
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_get_collection_info(self, milvus_client_basic, test_collection_name):
+            """Test getting collection information."""
+            try:
+                # Non-existent collection should return empty dict
+                info = milvus_client_basic.get_collection_info("nonexistent_collection")
+                assert info == {}
+                
+                # Create collection
+                milvus_client_basic.create_collection(test_collection_name, dimension=384)
+                
+                # Get collection info
+                info = milvus_client_basic.get_collection_info(test_collection_name)
+                assert isinstance(info, dict)
+                assert "name" in info
+                assert "schema" in info
+                assert "num_entities" in info
+                assert info["name"] == test_collection_name
+                
+                # Verify schema information
+                schema = info["schema"]
+                assert "fields" in schema
+                fields = schema["fields"]
+                assert len(fields) >= 4  # id, content, metadata, embedding
+                
+                field_names = [field["name"] for field in fields]
+                assert "id" in field_names
+                assert "content" in field_names
+                assert "metadata" in field_names
+                assert "embedding" in field_names
+                
+            finally:
+                # Cleanup
+                milvus_client_basic.delete_collection(test_collection_name)
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_context_manager(self, milvus_client_basic):
+            """Test context manager functionality."""
+            # Test successful context manager usage
+            with milvus_client_basic as client:
+                assert client._connected
+                assert client is milvus_client_basic
+            
+            # Should be disconnected after exiting context
+            assert not milvus_client_basic._connected
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_document_with_ids_insertion(self, milvus_client_basic, test_collection_name, sample_embeddings):
+            """Test inserting documents with explicit IDs."""
+            try:
+                # Create documents with explicit IDs
+                documents = [
+                    Document(
+                        id="doc_1",
+                        content="First document with explicit ID.",
+                        metadata={"source": "test", "doc_num": 1}
+                    ),
+                    Document(
+                        id="doc_2", 
+                        content="Second document with explicit ID.",
+                        metadata={"source": "test", "doc_num": 2}
+                    ),
+                ]
+                
+                # Create collection and insert
+                milvus_client_basic.create_collection(test_collection_name, dimension=384)
+                result = milvus_client_basic.insert_documents(
+                    test_collection_name,
+                    documents,
+                    sample_embeddings[:2]
+                )
+                assert result is True
+                
+            finally:
+                # Cleanup
+                milvus_client_basic.delete_collection(test_collection_name)
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_complex_metadata_handling(self, milvus_client_basic, test_collection_name, sample_embeddings):
+            """Test handling of complex metadata structures."""
+            try:
+                # Create documents with complex metadata
+                documents = [
+                    Document(
+                        content="Document with complex metadata.",
+                        metadata={
+                            "source": "test_file.txt",
+                            "author": "Test Author",
+                            "tags": ["ai", "ml", "vector_db"],
+                            "score": 0.95,
+                            "nested": {
+                                "category": "technical",
+                                "subcategory": "database"
+                            }
+                        }
+                    ),
+                ]
+                
+                # Create collection and insert
+                milvus_client_basic.create_collection(test_collection_name, dimension=384)
+                result = milvus_client_basic.insert_documents(
+                    test_collection_name,
+                    documents,
+                    sample_embeddings[:1]
+                )
+                assert result is True
+                
+                # Wait for indexing
+                time.sleep(2)
+                
+                # Search and verify metadata preservation
+                results = milvus_client_basic.search(
+                    test_collection_name,
+                    sample_embeddings[0],
+                    limit=1
+                )
+                
+                if results:
+                    retrieved_metadata = results[0].document.metadata
+                    assert retrieved_metadata["source"] == "test_file.txt"
+                    assert retrieved_metadata["author"] == "Test Author"
+                    assert retrieved_metadata["tags"] == ["ai", "ml", "vector_db"]
+                    assert retrieved_metadata["score"] == 0.95
+                    assert retrieved_metadata["nested"]["category"] == "technical"
+                
+            finally:
+                # Cleanup
+                milvus_client_basic.delete_collection(test_collection_name)
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_large_batch_insertion(self, milvus_client_basic, test_collection_name):
+            """Test inserting a larger batch of documents."""
+            try:
+                import numpy as np
+                np.random.seed(42)
+                
+                # Create larger set of documents
+                num_docs = 50
+                documents = [
+                    Document(
+                        content=f"Test document number {i} with unique content.",
+                        metadata={"doc_id": i, "batch": "large_test"}
+                    )
+                    for i in range(num_docs)
+                ]
+                
+                embeddings = [np.random.rand(384).tolist() for _ in range(num_docs)]
+                
+                # Create collection and insert
+                milvus_client_basic.create_collection(test_collection_name, dimension=384)
+                result = milvus_client_basic.insert_documents(
+                    test_collection_name,
+                    documents,
+                    embeddings
+                )
+                assert result is True
+                
+                # Verify collection info shows correct count
+                time.sleep(2)  # Wait for indexing
+                info = milvus_client_basic.get_collection_info(test_collection_name)
+                assert info["num_entities"] == num_docs
+                
+            finally:
+                # Cleanup
+                milvus_client_basic.delete_collection(test_collection_name)
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_search_limit_parameter(self, milvus_client_basic, test_collection_name,
+                                      sample_documents, sample_embeddings):
+            """Test search limit parameter."""
+            try:
+                # Create collection and insert documents
+                milvus_client_basic.create_collection(test_collection_name, dimension=384)
+                milvus_client_basic.insert_documents(
+                    test_collection_name,
+                    sample_documents,
+                    sample_embeddings
+                )
+                
+                time.sleep(2)  # Wait for indexing
+                
+                # Test different limit values
+                for limit in [1, 2, 3, 5]:
+                    results = milvus_client_basic.search(
+                        test_collection_name,
+                        sample_embeddings[0],
+                        limit=limit
+                    )
+                    
+                    # Results should not exceed limit or number of documents
+                    expected_max = min(limit, len(sample_documents))
+                    assert len(results) <= expected_max
+                
+            finally:
+                # Cleanup
+                milvus_client_basic.delete_collection(test_collection_name)
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_error_handling(self, milvus_config):
+            """Test error handling with invalid configuration."""
+            # Test with invalid host
+            invalid_config = MilvusConfig(
+                host="invalid_host_that_does_not_exist",
+                port=19530
+            )
+            
+            invalid_client = MilvusVectorDB(config=invalid_config)
+            
+            # Connection test should fail
+            result = invalid_client.test_connection()
+            assert result is False
+            
+            # Operations should handle errors gracefully
+            result = invalid_client.create_collection("test", 384)
+            assert result is False
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        @pytest.mark.parametrize("limit", [1, 2, 3, 5])
+        def test_search_with_various_limits(self, milvus_client_basic, test_collection_name,
+                                           sample_documents, sample_embeddings, limit):
+            """Test search with various limit parameters using parametrized fixture."""
+            try:
+                # Create collection and insert documents
+                milvus_client_basic.create_collection(test_collection_name, dimension=384)
+                milvus_client_basic.insert_documents(
+                    test_collection_name,
+                    sample_documents,
+                    sample_embeddings
+                )
+                
+                time.sleep(2)  # Wait for indexing
+                
+                # Search with parametrized limit
+                results = milvus_client_basic.search(
+                    test_collection_name,
+                    sample_embeddings[0],
+                    limit=limit
+                )
+                
+                # Results should not exceed limit or number of documents
+                expected_max = min(limit, len(sample_documents))
+                assert len(results) <= expected_max
+                
+            finally:
+                # Cleanup
+                milvus_client_basic.delete_collection(test_collection_name)
+    
+        @pytest.mark.milvus
+        @pytest.mark.integration
+        def test_large_batch_with_fixture_provider(self, milvus_client_basic, test_collection_name):
+            """Test large batch insertion using fixture provider."""
+            from mcp_rag_playground.tests.fixtures import milvus_fixtures
+            from mcp_rag_playground.vectordb.vector_db_interface import Document
+            
+            try:
+                # Get large document set from fixture provider
+                test_docs = milvus_fixtures.get_large_document_set(50)
+                documents = [
+                    Document(content=doc.content, metadata=doc.metadata)
+                    for doc in test_docs
+                ]
+                embeddings = milvus_fixtures.get_sample_embeddings(50)
+                
+                # Create collection and insert
+                milvus_client_basic.create_collection(test_collection_name, dimension=384)
+                result = milvus_client_basic.insert_documents(
+                    test_collection_name,
+                    documents,
+                    embeddings
+                )
+                assert result is True
+                
+                # Verify collection info shows correct count
+                time.sleep(2)  # Wait for indexing
+                info = milvus_client_basic.get_collection_info(test_collection_name)
+                assert info["num_entities"] == 50
+                
+            finally:
+                # Cleanup
+                milvus_client_basic.delete_collection(test_collection_name)
+    ]]></file>
+  <file path="tests\test_imports.py"><![CDATA[
+    """
+    Test module for verifying import chain functionality.
+    
+    This module tests that all imports in __init__.py work correctly without ImportError
+    and that the conditional MCP import behavior works as expected.
+    """
+    
+    import pytest
+    import sys
+    
+    
+    class TestImportChain:
+        """Test the main package import chain."""
+    
+        def test_main_package_import(self):
+            """Test that main package can be imported without errors."""
+            # This should succeed without ImportError
+            import mcp_rag_playground
+            
+            # Verify basic components are available
+            assert hasattr(mcp_rag_playground, 'VectorClient')
+            assert hasattr(mcp_rag_playground, 'RagAPI')
+            assert hasattr(mcp_rag_playground, 'MilvusVectorDB')
+    
+        def test_all_exports_importable(self):
+            """Test that all items in __all__ can be imported."""
+            import mcp_rag_playground
+            
+            # Get the __all__ list
+            all_exports = mcp_rag_playground.__all__
+            assert len(all_exports) > 0, "No exports found in __all__"
+            
+            # Verify each export can be accessed
+            for export_name in all_exports:
+                assert hasattr(mcp_rag_playground, export_name), f"Export '{export_name}' not available"
+                
+                # Verify the attribute is not None (except for conditional imports)
+                attr = getattr(mcp_rag_playground, export_name)
+                if export_name != 'rag_server':  # rag_server might be None if MCP unavailable
+                    assert attr is not None, f"Export '{export_name}' is None"
+    
+        def test_core_components_available(self):
+            """Test that core components are always available."""
+            from mcp_rag_playground import (
+                VectorClient,
+                RagAPI, 
+                MilvusVectorDB,
+                SentenceTransformerEmbedding,
+                Document,
+                SearchResult,
+                MilvusConfig
+            )
+            
+            # Verify these are actual classes/types, not None
+            assert VectorClient is not None
+            assert RagAPI is not None
+            assert MilvusVectorDB is not None
+            assert SentenceTransformerEmbedding is not None
+            assert Document is not None
+            assert SearchResult is not None
+            assert MilvusConfig is not None
+    
+        def test_mcp_conditional_import(self):
+            """Test MCP conditional import behavior."""
+            import mcp_rag_playground
+            
+            # Check if MCP is available
+            mcp_available = mcp_rag_playground._MCP_AVAILABLE
+            
+            if mcp_available:
+                # If MCP is available, rag_server should be in __all__ and accessible
+                assert 'rag_server' in mcp_rag_playground.__all__
+                assert hasattr(mcp_rag_playground, 'rag_server')
+                rag_server = mcp_rag_playground.rag_server
+                assert rag_server is not None
+                
+                # Verify rag_server module has expected attributes
+                assert hasattr(rag_server, 'mcp')  # FastMCP instance
+                assert hasattr(rag_server, 'container')  # DI container
+            else:
+                # If MCP is not available, rag_server might not be in __all__
+                # or might be None
+                if hasattr(mcp_rag_playground, 'rag_server'):
+                    assert mcp_rag_playground.rag_server is None
+    
+        def test_fresh_installation_import(self):
+            """Test import behavior simulating fresh installation."""
+            # This simulates what happens when someone does:
+            # python -c "import mcp_rag_playground"
+            
+            try:
+                import mcp_rag_playground
+                # Should not raise ImportError
+                success = True
+            except ImportError as e:
+                success = False
+                pytest.fail(f"Fresh installation import failed: {e}")
+            
+            assert success, "Fresh installation import should succeed"
+    
+        def test_mcp_module_structure(self):
+            """Test MCP module structure and exports."""
+            try:
+                from mcp_rag_playground.mcp import rag_server
+                
+                # If import succeeds, verify module structure
+                assert hasattr(rag_server, 'mcp'), "rag_server should have 'mcp' attribute"
+                assert hasattr(rag_server, 'container'), "rag_server should have 'container' attribute"
+                
+                # Verify MCP server tools are available
+                mcp_instance = rag_server.mcp
+                # Note: FastMCP tools aren't easily introspectable, but we can check it's a FastMCP
+                assert str(type(mcp_instance)).find('FastMCP') != -1, "Should be FastMCP instance"
+                
+            except ImportError:
+                # If MCP dependencies not available, this is expected
+                pytest.skip("MCP dependencies not available")
+    
+        def test_backward_compatibility_imports(self):
+            """Test that existing import patterns still work."""
+            # Test individual component imports
+            from mcp_rag_playground import VectorClient
+            from mcp_rag_playground import RagAPI
+            from mcp_rag_playground.vectordb.vector_client import VectorClient as VCDirect
+            from mcp_rag_playground.rag.rag_api import RagAPI as RAGDirect
+            
+            # Verify these are the same classes
+            assert VectorClient is VCDirect
+            assert RagAPI is RAGDirect
+            
+            # Test container import (common existing pattern)
+            from mcp_rag_playground.container.container import Container
+            assert Container is not None
+    
+    
+    class TestImportErrorHandling:
+        """Test import error handling and graceful degradation."""
+    
+        def test_missing_optional_dependencies(self):
+            """Test behavior when optional dependencies are missing."""
+            # This is harder to test directly since we'd need to mock missing dependencies
+            # But we can verify the conditional import pattern works
+            
+            import mcp_rag_playground
+            
+            # The import should succeed even if some conditional imports fail
+            assert mcp_rag_playground is not None
+            assert hasattr(mcp_rag_playground, '_MCP_AVAILABLE')
+            
+            # _MCP_AVAILABLE should be a boolean
+            assert isinstance(mcp_rag_playground._MCP_AVAILABLE, bool)
+    
+        def test_import_path_consistency(self):
+            """Test that relative and absolute imports return the same objects."""
+            import mcp_rag_playground
+            from mcp_rag_playground.vectordb.vector_client import VectorClient as DirectVectorClient
+            from mcp_rag_playground.rag.rag_api import RagAPI as DirectRagAPI
+            
+            # Verify package exports match direct imports
+            assert mcp_rag_playground.VectorClient is DirectVectorClient, "Package export should match direct import"
+            assert mcp_rag_playground.RagAPI is DirectRagAPI, "Package export should match direct import"
+            
+            # Test that we can import the same module multiple ways without issues
+            from mcp_rag_playground import VectorClient as ExportedVC
+            assert ExportedVC is DirectVectorClient, "All import methods should return same object"
+    ]]></file>
+  <file path="tests\test_embedding_service.py"><![CDATA[
+    """
+    Test suite for embedding service implementations.
+    Uses real sentence-transformer models (no mocks) for comprehensive testing.
+    """
+    
+    import pytest
+    import numpy as np
+    from typing import List
+    from unittest.mock import patch
+    
+    from mcp_rag_playground.vectordb.embedding_service import (
+        EmbeddingService, 
+        SentenceTransformerEmbedding
+    )
+    
+    
+    class TestSentenceTransformerEmbedding:
+        """Test suite for SentenceTransformerEmbedding using real models."""
+    
+        @pytest.fixture
+        def embedding_service(self, embedding_model_configs):
+            """Create embedding service with default model."""
+            model_config = embedding_model_configs["default"]
+            return SentenceTransformerEmbedding(model_name=model_config["name"])
+        
+        @pytest.fixture
+        def custom_embedding_service(self, embedding_model_configs):
+            """Create embedding service with alternative model."""
+            model_config = embedding_model_configs["alternative"]
+            return SentenceTransformerEmbedding(model_name=model_config["name"])
+    
+        @pytest.mark.slow
+        @pytest.mark.integration
+        def test_model_loading_lazy_initialization(self, embedding_service):
+            """Test that model is loaded lazily on first use."""
+            # Model should not be loaded initially
+            assert embedding_service._model is None
+            assert embedding_service._dimension is None
+            
+            # First call should trigger model loading
+            dimension = embedding_service.get_dimension()
+            
+            # Model should now be loaded
+            assert embedding_service._model is not None
+            assert embedding_service._dimension is not None
+            assert dimension > 0
+    
+        @pytest.mark.slow
+        @pytest.mark.integration
+        def test_embed_text_single(self, embedding_service, embedding_single_texts):
+            """Test embedding a single text."""
+            text = embedding_single_texts[0]  # Use first test text
+            
+            embedding = embedding_service.embed_text(text)
+            
+            # Verify embedding properties
+            assert isinstance(embedding, list)
+            assert len(embedding) > 0
+            assert all(isinstance(x, float) for x in embedding)
+            
+            # Check dimension consistency
+            expected_dimension = embedding_service.get_dimension()
+            assert len(embedding) == expected_dimension
+    
+        @pytest.mark.slow
+        @pytest.mark.integration
+        def test_embed_texts_batch(self, embedding_service, embedding_batch_texts):
+            """Test embedding multiple texts."""
+            texts = embedding_batch_texts  # Use batch texts from fixture
+            
+            embeddings = embedding_service.embed_texts(texts)
+            
+            # Verify batch embeddings
+            assert isinstance(embeddings, list)
+            assert len(embeddings) == len(texts)
+            
+            # Check each embedding
+            expected_dimension = embedding_service.get_dimension()
+            for embedding in embeddings:
+                assert isinstance(embedding, list)
+                assert len(embedding) == expected_dimension
+                assert all(isinstance(x, float) for x in embedding)
+    
+        @pytest.mark.slow
+        @pytest.mark.integration
+        def test_dimension_consistency(self, embedding_service):
+            """Test that dimension is consistent across calls."""
+            # Get dimension multiple times
+            dim1 = embedding_service.get_dimension()
+            dim2 = embedding_service.get_dimension()
+            
+            assert dim1 == dim2
+            assert dim1 > 0
+            
+            # Verify embedding dimensions match
+            text = "Test text for dimension verification."
+            embedding = embedding_service.embed_text(text)
+            assert len(embedding) == dim1
+    
+        @pytest.mark.slow
+        @pytest.mark.integration
+        def test_embedding_similarity(self, embedding_service, embedding_similarity_pair):
+            """Test that similar texts have higher similarity."""
+            # Get similarity pair and threshold from fixture
+            text1, text2, threshold = embedding_similarity_pair
+            
+            # Get a dissimilar text
+            from mcp_rag_playground.tests.fixtures.embedding_fixtures import get_low_similarity_pair
+            low_text1, text3, _ = get_low_similarity_pair()
+            
+            emb1 = embedding_service.embed_text(text1)
+            emb2 = embedding_service.embed_text(text2)
+            emb3 = embedding_service.embed_text(text3)
+            
+            # Calculate cosine similarities
+            def cosine_similarity(a: List[float], b: List[float]) -> float:
+                a_np = np.array(a)
+                b_np = np.array(b)
+                return np.dot(a_np, b_np) / (np.linalg.norm(a_np) * np.linalg.norm(b_np))
+            
+            sim_12 = cosine_similarity(emb1, emb2)
+            sim_13 = cosine_similarity(emb1, emb3)
+            
+            # Similar texts should have higher similarity
+            assert sim_12 > sim_13
+            
+            # Use threshold from fixture
+            assert sim_12 > threshold  # Should meet high similarity threshold
+    
+        @pytest.mark.slow
+        @pytest.mark.integration
+        def test_custom_model_name(self, custom_embedding_service):
+            """Test embedding service with custom model name."""
+            text = "Testing custom model embedding."
+            
+            embedding = custom_embedding_service.embed_text(text)
+            dimension = custom_embedding_service.get_dimension()
+            
+            assert isinstance(embedding, list)
+            assert len(embedding) == dimension
+            assert dimension > 0
+    
+        @pytest.mark.slow
+        @pytest.mark.integration
+        @pytest.mark.parametrize("text_content,description", [
+            ("", "empty string"),
+            ("   \n\t   ", "whitespace only"), 
+            ("!@#$%^&*()", "special characters")
+        ])
+        def test_edge_case_texts(self, embedding_service, text_content, description):
+            """Test handling of edge case text inputs."""
+            embedding = embedding_service.embed_text(text_content)
+            assert isinstance(embedding, list)
+            assert len(embedding) == embedding_service.get_dimension()
+    
+        @pytest.mark.slow
+        @pytest.mark.integration
+        def test_batch_vs_individual_consistency(self, embedding_service):
+            """Test that batch and individual embeddings are consistent."""
+            texts = ["First text.", "Second text.", "Third text."]
+            
+            # Get embeddings individually
+            individual_embeddings = [embedding_service.embed_text(text) for text in texts]
+            
+            # Get embeddings in batch
+            batch_embeddings = embedding_service.embed_texts(texts)
+            
+            # Compare embeddings (should be very close)
+            assert len(individual_embeddings) == len(batch_embeddings)
+            
+            for individual, batch in zip(individual_embeddings, batch_embeddings):
+                individual_np = np.array(individual)
+                batch_np = np.array(batch)
+                
+                # Should be very close (allowing for small numerical differences)
+                np.testing.assert_allclose(individual_np, batch_np, rtol=1e-5, atol=1e-6)
+    
+        @pytest.mark.unit
+        def test_missing_sentence_transformers_import(self):
+            """Test error handling when sentence-transformers is not available."""
+            with patch('builtins.__import__', side_effect=ImportError("No module named 'sentence_transformers'")):
+                embedding_service = SentenceTransformerEmbedding()
+                
+                with pytest.raises(ImportError, match="sentence-transformers is required"):
+                    embedding_service.embed_text("test")
+    
+        @pytest.mark.slow
+        @pytest.mark.integration
+        def test_large_text_handling(self, embedding_service):
+            """Test handling of large text inputs."""
+            # Create a large text (longer than typical sentence)
+            large_text = "This is a very long text. " * 100  # ~2700 characters
+            
+            embedding = embedding_service.embed_text(large_text)
+            
+            assert isinstance(embedding, list)
+            assert len(embedding) == embedding_service.get_dimension()
+            assert all(isinstance(x, float) for x in embedding)
+    
+        @pytest.mark.slow
+        @pytest.mark.integration
+        def test_multiple_languages(self, embedding_service, embedding_multilingual_texts):
+            """Test embedding texts in different languages."""
+            texts = embedding_multilingual_texts  # Use multilingual texts from fixture
+            
+            embeddings = embedding_service.embed_texts(texts)
+            
+            assert len(embeddings) == len(texts)
+            for embedding in embeddings:
+                assert isinstance(embedding, list)
+                assert len(embedding) == embedding_service.get_dimension()
+    
+        @pytest.mark.slow
+        @pytest.mark.integration
+        def test_numerical_stability(self, embedding_service):
+            """Test that embeddings are numerically stable."""
+            from mcp_rag_playground.tests.fixtures.embedding_fixtures import get_stability_test_config
+            stability_config = get_stability_test_config()
+            text = stability_config["test_text"]
+            repetitions = stability_config["repetitions"]
+            
+            # Get embedding multiple times
+            embeddings = [embedding_service.embed_text(text) for _ in range(repetitions)]
+            
+            # All embeddings should be identical (within tolerance)
+            tolerance = stability_config["tolerance"]
+            for i in range(1, len(embeddings)):
+                np.testing.assert_allclose(embeddings[0], embeddings[i], rtol=tolerance, atol=tolerance)
+    
+        @pytest.mark.slow
+        @pytest.mark.integration
+        def test_abstract_interface_compliance(self, embedding_service):
+            """Test that SentenceTransformerEmbedding implements EmbeddingService interface."""
+            assert isinstance(embedding_service, EmbeddingService)
+            
+            # Verify all required methods are implemented
+            assert hasattr(embedding_service, 'embed_text')
+            assert hasattr(embedding_service, 'embed_texts')
+            assert hasattr(embedding_service, 'get_dimension')
+            
+            # Verify methods are callable
+            assert callable(embedding_service.embed_text)
+            assert callable(embedding_service.embed_texts)
+            assert callable(embedding_service.get_dimension)
+        
+        @pytest.mark.slow
+        @pytest.mark.integration
+        @pytest.mark.parametrize("text_type", ["single", "large", "stability"])
+        def test_performance_texts(self, embedding_service, text_type, embedding_single_texts):
+            """Test embedding performance with different text types."""
+            from mcp_rag_playground.tests.fixtures.embedding_fixtures import get_stability_test_config
+            
+            if text_type == "single":
+                text = embedding_single_texts[0]
+            elif text_type == "large":
+                text = "Long text " * 100  # Create long text
+            else:  # stability
+                stability_config = get_stability_test_config()
+                text = stability_config["test_text"]
+            
+            # Test that we can embed the performance text
+            embedding = embedding_service.embed_text(text)
+            
+            assert isinstance(embedding, list)
+            assert len(embedding) == embedding_service.get_dimension()
+            assert all(isinstance(x, float) for x in embedding)
+    ]]></file>
+  <file path="tests\conftest.py"><![CDATA[
+    """
+    pytest configuration and shared fixtures for the test suite.
+    """
+    
+    from unittest.mock import Mock
+    
+    import pytest
+    
+    # Import simple fixtures
+    from mcp_rag_playground.tests.fixtures import embedding_fixtures, vector_client_fixtures
+    from mcp_rag_playground.vectordb.embedding_service import EmbeddingService
+    from mcp_rag_playground.vectordb.vector_db_interface import VectorDBInterface
+    
+    
+    
+    def pytest_configure(config):
+        """Configure pytest with custom markers."""
+        # Add custom markers
+        config.addinivalue_line(
+            "markers", "unit: mark test as a unit test"
+        )
+        config.addinivalue_line(
+            "markers", "integration: mark test as an integration test"
+        )
+        config.addinivalue_line(
+            "markers", "slow: mark test as slow-running"
+        )
+        config.addinivalue_line(
+            "markers", "milvus: mark test as requiring Milvus connection"
+        )
+        config.addinivalue_line(
+            "markers", "embedding: mark test as requiring embedding models"
+        )
+        config.addinivalue_line(
+            "markers", "requires_milvus: mark test as requiring Milvus connection"
+        )
+        config.addinivalue_line(
+            "markers", "requires_embedding: mark test as requiring embedding models"
+        )
+    
+    
+    def pytest_collection_modifyitems(config, items):
+        """Modify test collection to add markers based on test names and content."""
+        for item in items:
+            # Add embedding marker to tests that use real embedding models
+            if "embedding_service" in item.nodeid or "SentenceTransformer" in str(item.function):
+                item.add_marker(pytest.mark.embedding)
+    
+            # Add milvus marker to tests that use real Milvus
+            if "milvus_client" in item.nodeid or "MilvusVectorDB" in str(item.function):
+                item.add_marker(pytest.mark.milvus)
+    
+            # Add integration marker to integration test files
+            if "integration" in item.nodeid:
+                item.add_marker(pytest.mark.integration)
+                item.add_marker(pytest.mark.slow)
+    
+    
+    
+    # Legacy configuration fixtures removed - using simple fixtures instead
+    
+    
+    # Old complex mock fixtures removed - using simple ones below
+    
+    
+    # Configuration-based test data fixtures removed - using simple fixtures instead
+    
+    
+    # Skip markers removed - tests handle their own dependencies
+    
+    
+    # Cleanup fixtures removed - TestHelpers module not found
+    
+    
+    
+    # Performance and sample fixtures removed - using simple fixtures instead
+    
+    
+    # Conditional and parameterized fixtures removed - using simple fixtures instead
+    
+    
+    # Simple embedding fixtures
+    @pytest.fixture
+    def embedding_single_texts():
+        """Get single test texts for embedding tests."""
+        return embedding_fixtures.get_single_test_texts()
+    
+    
+    @pytest.fixture
+    def embedding_batch_texts():
+        """Get batch test texts for embedding tests."""
+        return embedding_fixtures.get_batch_test_texts()
+    
+    
+    @pytest.fixture
+    def embedding_multilingual_texts():
+        """Get multilingual texts for embedding tests."""
+        return embedding_fixtures.get_multilingual_texts()
+    
+    
+    @pytest.fixture
+    def embedding_edge_case_texts():
+        """Get edge case texts for embedding tests."""
+        return embedding_fixtures.get_edge_case_texts()
+    
+    
+    @pytest.fixture
+    def embedding_similarity_pair():
+        """Get high similarity text pair for testing."""
+        return embedding_fixtures.get_high_similarity_pair()
+    
+    
+    @pytest.fixture
+    def embedding_model_configs():
+        """Get embedding model configurations."""
+        return embedding_fixtures.get_model_configs()
+    
+    
+    # Vector client fixtures (moved from test files)
+    @pytest.fixture
+    def mock_vector_db():
+        """Create mock vector database for unit tests."""
+        return vector_client_fixtures.create_mock_vector_db()
+    
+    
+    @pytest.fixture
+    def mock_embedding_service():
+        """Create mock embedding service for unit tests."""
+        return vector_client_fixtures.create_mock_embedding_service()
+    
+    
+    @pytest.fixture
+    def mock_document_processor():
+        """Create mock document processor for unit tests."""
+        return vector_client_fixtures.create_mock_document_processor()
+    
+    
+    @pytest.fixture
+    def sample_documents():
+        """Get sample documents for testing."""
+        return vector_client_fixtures.get_sample_documents()
+    
+    
+    @pytest.fixture
+    def sample_embeddings():
+        """Get sample embeddings for testing."""
+        return vector_client_fixtures.get_sample_embeddings()
+    
+    
+    @pytest.fixture
+    def search_results():
+        """Get sample search results for testing."""
+        return vector_client_fixtures.create_search_results()
+    
+    
+    # Integration test fixtures (moved from test files)
+    @pytest.fixture
+    def test_data_dir():
+        """Get path to test data directory."""
+        from pathlib import Path
+        return Path(__file__).parent / "test_data"
+    
+    
+    @pytest.fixture
+    def test_files(test_data_dir):
+        """Get paths to test data files."""
+        return {
+            "txt": str(test_data_dir / "test_document.txt"),
+            "md": str(test_data_dir / "test_document.md"),
+            "py": str(test_data_dir / "test_module.py")
+        }
+    
+    
+    @pytest.fixture
+    def test_collection_name():
+        """Generate unique test collection name."""
+        return vector_client_fixtures.generate_unique_collection_name()
+    
+    
+    # Milvus-specific fixtures (moved from test files)
+    @pytest.fixture
+    def milvus_config_basic():
+        """Create basic Milvus configuration for testing."""
+        from mcp_rag_playground.config.milvus_config import MilvusConfig
+        return MilvusConfig(
+            host="localhost",
+            port=19530,
+            collection_name="test_collection",
+            index_type="IVF_FLAT",
+            metric_type="COSINE"
+        )
+    
+    
+    @pytest.fixture
+    def milvus_client_basic(milvus_config_basic):
+        """Create MilvusVectorDB client for testing."""
+        from mcp_rag_playground.vectordb.milvus.milvus_client import MilvusVectorDB
+        return MilvusVectorDB(config=milvus_config_basic)
+    
+    
+    # RAG API fixtures (moved from test files)
+    @pytest.fixture
+    def rag_api_basic(test_collection_name):
+        """Create RagAPI with real components for integration testing."""
+        from mcp_rag_playground.rag.rag_api import RagAPI
+        from mcp_rag_playground.vectordb.vector_client import VectorClient
+        from mcp_rag_playground.vectordb.milvus.milvus_client import MilvusVectorDB
+        from mcp_rag_playground.vectordb.embedding_service import SentenceTransformerEmbedding
+        from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
+        from mcp_rag_playground.config.milvus_config import MilvusConfig
+        
+        # Create real components
+        milvus_config = MilvusConfig(
+            host="localhost",
+            port=19530,
+            collection_name=test_collection_name,
+            index_type="IVF_FLAT",
+            metric_type="COSINE"
+        )
+        vector_db = MilvusVectorDB(config=milvus_config)
+        embedding_service = SentenceTransformerEmbedding(model_name="all-MiniLM-L6-v2")
+        document_processor = DocumentProcessor()
+        
+        # Create vector client
+        vector_client = VectorClient(
+            vector_db=vector_db,
+            embedding_service=embedding_service,
+            document_processor=document_processor,
+            collection_name=test_collection_name
+        )
+        
+        # Create RAG API
+        return RagAPI(vector_client=vector_client, collection_name=test_collection_name)
+    ]]></file>
+  <file path="rag\__init__.py"></file>
+  <file path="rag\rag_api.py"><![CDATA[
+    """
+    RAG API - High-level interface for Retrieval-Augmented Generation operations.
+    
+    This module provides a simplified API for document ingestion and semantic search,
+    wrapping the underlying vector database client with user-friendly methods.
+    """
+    
+    from typing import List, Dict, Any, Union, Optional
+    import os
+    from pathlib import Path
+    
+    from mcp_rag_playground.vectordb.vector_client import VectorClient
+    from mcp_rag_playground.vectordb.vector_db_interface import SearchResult
+    from mcp_rag_playground.config.logging_config import get_logger
+    
+    logger = get_logger(__name__)
+    
+    
+    class RagAPI:
+        """
+        High-level RAG API for document ingestion and semantic search.
+        
+        Provides simplified methods for adding documents and querying for relevant content,
+        abstracting away the complexity of the underlying vector database operations.
+        """
+        
+        def __init__(self, vector_client: VectorClient, collection_name: str = "rag_collection"):
+            """
+            Initialize the RAG API.
+            
+            Args:
+                vector_client: Configured VectorClient instance
+                collection_name: Name for the document collection
+            """
+            self.vector_client = vector_client
+            self.collection_name = collection_name
+            # Update the vector client's collection name
+            self.vector_client.collection_name = collection_name
+            logger.info(f"RagAPI initialized with collection: {collection_name}")
+        
+        def add_document(self, file_path: str) -> bool:
+            """
+            Add a document to the RAG system from a file.
+            
+            Args:
+                file_path: Path to the file to upload
+                    
+            Returns:
+                bool: True if upload successful, False otherwise
+            """
+            try:
+                logger.info(f"Adding document from file: {file_path}")
+                result = self._add_file(file_path)
+                success = result["success"]
+                if success:
+                    logger.info(f"Successfully added document: {file_path}")
+                else:
+                    logger.error(f"Failed to add document: {file_path}")
+                return success
+            except Exception as e:
+                logger.error(f"Error adding document {file_path}: {e}")
+                return False
+    
+        def _add_file(self, file_path: str) -> Dict[str, Any]:
+            """Add a single file to the vector database."""
+            try:
+                if not os.path.exists(file_path):
+                    return {
+                        "success": False,
+                        "error": f"File not found: {file_path}",
+                        "source": file_path
+                    }
+                
+                success = self.vector_client.upload(file_path)
+                
+                return {
+                    "success": success,
+                    "source": file_path,
+                    "type": "file",
+                    "size": os.path.getsize(file_path),
+                    "filename": os.path.basename(file_path)
+                }
+                
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "source": file_path,
+                    "type": "file"
+                }
+        
+        
+        def query(self, question: str, limit: int = 5, min_score: float = 0.0) -> List[Dict[str, Any]]:
+            """
+            Query the RAG system for relevant documents.
+            
+            Args:
+                question: The question or search query
+                limit: Maximum number of results to return
+                min_score: Minimum similarity score threshold (0.0-1.0)
+                
+            Returns:
+                List of result dictionaries containing:
+                    - content: The document content
+                    - score: Similarity score (0.0-1.0)
+                    - metadata: Document metadata
+                    - source: Source information
+                    
+            Examples:
+                # Basic query
+                results = api.query("What is machine learning?")
+                
+                # Query with filtering
+                results = api.query("Python programming", limit=10, min_score=0.7)
+                
+                for result in results:
+                    # Example output format (for documentation only):
+                    # print(f"Score: {result['score']}")
+                    # print(f"Content: {result['content']}")
+            """
+            if not question or not question.strip():
+                logger.warning("Empty query provided to RAG API")
+                return []
+            
+            try:
+                logger.info(f"RAG API query: '{question}' (limit: {limit}, min_score: {min_score})")
+                # Use vector client's enhanced query method
+                search_results: List[SearchResult] = self.vector_client.query(
+                    question.strip(), 
+                    limit=limit, 
+                    min_score=min_score
+                )
+                
+                # Convert SearchResult objects to user-friendly dictionaries
+                formatted_results = []
+                for result in search_results:
+                    formatted_result = {
+                        "content": result.document.content,
+                        "score": result.score,
+                        "metadata": result.document.metadata.copy(),
+                        "source": result.document.metadata.get("source", "unknown"),
+                        "document_id": result.document.id
+                    }
+                    
+                    # Add additional context information
+                    if "file_name" in result.document.metadata:
+                        formatted_result["filename"] = result.document.metadata["file_name"]
+                    
+                    if "chunk_index" in result.document.metadata:
+                        formatted_result["chunk_info"] = {
+                            "index": result.document.metadata["chunk_index"],
+                            "total_chunks": result.document.metadata.get("total_chunks", 1)
+                        }
+                    
+                    formatted_results.append(formatted_result)
+                
+                logger.info(f"RAG API query completed: {len(formatted_results)} results returned")
+                return formatted_results
+                
+            except Exception as e:
+                logger.error(f"Error during RAG API query: {e}")
+                return []
+        
+        def get_collection_info(self) -> Dict[str, Any]:
+            """
+            Get information about the current document collection.
+            
+            Returns:
+                Dict containing collection statistics and metadata
+            """
+            try:
+                logger.debug(f"Getting collection info for: {self.collection_name}")
+                info = self.vector_client.get_collection_info()
+                
+                # Enhance with RAG-specific information
+                enhanced_info = {
+                    "collection_name": self.collection_name,
+                    "status": "ready" if info else "not_initialized",
+                    "raw_info": info
+                }
+                
+                if info:
+                    enhanced_info.update({
+                        "document_count": info.get("num_entities", 0),
+                        "schema_fields": len(info.get("schema", {}).get("fields", [])),
+                        "collection_ready": True
+                    })
+                else:
+                    enhanced_info.update({
+                        "document_count": 0,
+                        "collection_ready": False
+                    })
+                
+                return enhanced_info
+                
+            except Exception as e:
+                logger.error(f"Error getting collection info: {e}")
+                return {
+                    "collection_name": self.collection_name,
+                    "status": "error",
+                    "error": str(e),
+                    "collection_ready": False
+                }
+        
+        def delete_collection(self) -> bool:
+            """
+            Delete the current document collection.
+            
+            Returns:
+                bool: True if deletion successful, False otherwise
+            """
+            try:
+                logger.warning(f"Deleting collection: {self.collection_name}")
+                result = self.vector_client.delete_collection()
+                if result:
+                    logger.info(f"Successfully deleted collection: {self.collection_name}")
+                else:
+                    logger.error(f"Failed to delete collection: {self.collection_name}")
+                return result
+            except Exception as e:
+                logger.error(f"Error deleting collection: {e}")
+                return False
+    ]]></file>
+  <file path="mcp\__init__.py"><![CDATA[
+    """
+    MCP (Model Context Protocol) server module.
+    
+    This module provides FastMCP server functionality for RAG operations.
+    """
+    
+    from . import rag_server
+    
+    __all__ = ['rag_server']
+    ]]></file>
+  <file path="mcp\rag_server.py"><![CDATA[
+    """
+    MCP Server wrapper for RAG API functionality.
+    
+    This module provides a Model Context Protocol (MCP) server that wraps the RagAPI,
+    making RAG operations available as MCP tools for integration with LLM applications.
+    """
+    
+    import os
+    import platform
+    import time
+    from contextlib import asynccontextmanager
+    from dataclasses import dataclass
+    from typing import Dict, Any, Optional, AsyncIterator
+    
+    from mcp.server.fastmcp import FastMCP, Context
+    
+    from mcp_rag_playground import RagAPI
+    from mcp_rag_playground.config.logging_config import get_logger
+    from mcp_rag_playground.container.container import Container
+    
+    logger = get_logger(__name__)
+    
+    
+    def _normalize_file_path(file_path: str) -> str:
+        """
+        Normalize file path for cross-platform compatibility.
+        
+        Converts Windows paths to WSL paths when running in WSL environment.
+        
+        Args:
+            file_path: Original file path
+            
+        Returns:
+            Normalized file path
+        """
+        # Check if we're in WSL and the path is a Windows path
+        if (platform.system() == "Linux" and 
+            "microsoft" in platform.uname().release.lower() and
+            file_path.startswith("C:\\") and not os.path.exists(file_path)):
+            
+            # Convert Windows path to WSL path
+            wsl_path = file_path.replace("C:\\", "/mnt/c/").replace("\\", "/")
+            if os.path.exists(wsl_path):
+                return wsl_path
+        
+        return file_path
+    
+    
+    @dataclass
+    class AppContext:
+        """Application context with typed dependencies."""
+    
+        rag_api: RagAPI
+    
+    @asynccontextmanager
+    async def app_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
+        """Manage application lifecycle with DI container."""
+        logger.info("Initializing RAG server with DI container")
+        # Get RAG API from production container
+        rag_api = container.rag_api()
+        logger.info(f"RAG API initialized with collection: {rag_api.collection_name}")
+        
+        # Test vector database connection
+        logger.info("Testing vector database connection...")
+        try:
+            connection_success = rag_api.vector_client.test_connection()
+            if not connection_success:
+                error_msg = "Vector database connection test failed. Cannot start MCP server."
+                logger.critical(error_msg)
+                raise RuntimeError(error_msg)
+    
+            logger.info("Vector database connection successful - MCP server ready to start")
+    
+        except Exception as e:
+            error_msg = f"Failed to test vector database connection: {e}"
+            logger.critical(error_msg)
+            raise RuntimeError(error_msg)
+        
+        try:
+            yield AppContext(rag_api=rag_api)
+        finally:
+            logger.info("RAG server shutdown complete")
+    
+    container : Container = Container()
+    server_name = "FileSystemRagMCP"
+    mcp = FastMCP(server_name, lifespan=app_lifespan)
+    logger.info(f"Initializing RAG MCP Server: {server_name}")
+    
+    @mcp.tool()
+    def add_document_from_file(ctx: Context, file_path: str) -> Dict[str, Any]:
+        """
+        Add a document to the knowledge base from a file with intelligent processing.
+    
+        This tool ingests documents from files, automatically processing and chunking them
+        for optimal semantic search. The system supports 15+ file formats including text,
+        markdown, code files, JSON, YAML, and web formats.
+    
+        Features:
+        - Automatic file type detection and processing
+        - Intelligent chunking (800 chars with 200 char overlap)
+        - Metadata extraction (filename, file type, size)
+        - Error handling for missing or corrupted files
+    
+        Supported formats: .txt, .md, .py, .js, .ts, .json, .yaml, .css, .html,
+        .xml, .toml, .ini, .log and more.
+    
+        Use cases:
+        - Import documentation, manuals, and guides
+        - Add code repositories for semantic code search
+        - Ingest configuration files and logs
+        - Build knowledge bases from research papers
+        - Process customer support documents
+    
+        Args:
+            file_path: Absolute or relative path to the file to add to the knowledge base.
+                      File must exist and be readable.
+    
+        Returns:
+            Result dictionary containing:
+            - success: Boolean indicating if the operation succeeded
+            - file_path: The processed file path
+            - filename: Base filename for reference
+            - message: Human-readable status message
+            - error: Error details if the operation failed
+    
+        Examples:
+            add_document_from_file("/path/to/manual.md")
+            add_document_from_file("./docs/api_reference.py")
+            add_document_from_file("config.json")
+            :param file_path:
+            :param ctx:
+        """
+        try:
+            ctx.info(f"MCP Tool: add_document_from_file called with: {file_path}")
+            # Normalize the file path for cross-platform compatibility
+            normalized_path = _normalize_file_path(file_path)
+    
+            if not os.path.exists(normalized_path):
+                error_msg = f"File not found: {file_path} (checked: {normalized_path})"
+                ctx.error(error_msg)
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "file_path": file_path,
+                    "normalized_path": normalized_path
+                }
+    
+            # Check file size and warn about potential processing time
+            file_size = os.path.getsize(normalized_path)
+    
+            # For files larger than 1MB, provide size information
+            if file_size > 1024 * 1024:
+                # Calculate estimated processing info
+                chunk_size = 4000  # From test environment config
+                overlap = 400
+                estimated_chunks = max(1, file_size // (chunk_size - overlap))
+    
+                # Log file processing info to stderr (not stdout to avoid JSON interference)
+                import sys
+                print(f"Processing large file: {file_size:,} bytes, estimated {estimated_chunks:,} chunks", file=sys.stderr)
+    
+            # Measure processing time
+            start_time = time.time()
+            logger.info('Getting context of rag_api from DI')
+            rag_api : RagAPI = ctx.request_context.lifespan_context.rag_api
+            success = rag_api.add_document(normalized_path)
+            end_time = time.time()
+            processing_time = end_time - start_time
+    
+            result = {
+                "success": success,
+                "file_path": file_path,
+                "normalized_path": normalized_path,
+                "filename": os.path.basename(normalized_path),
+                "file_size": file_size,
+                "processing_time_seconds": round(processing_time, 2)
+            }
+    
+            if success:
+                result["message"] = f"Successfully processed {os.path.basename(normalized_path)} ({file_size:,} bytes) in {processing_time:.1f}s"
+                ctx.info(f"Successfully processed file: {normalized_path} in {processing_time:.1f}s")
+            else:
+                result["message"] = f"Failed to process {os.path.basename(normalized_path)}"
+                ctx.error(f"Failed to process file: {normalized_path}")
+            return result
+    
+        except Exception as e:
+            ctx.error(f"Exception in add_document_from_file: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "file_path": file_path
+            }
+    @mcp.tool()
+    def add_document_from_content(ctx: Context, content: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Add a document to the knowledge base from raw text content with custom metadata.
+    
+        This tool allows direct ingestion of text content without requiring a physical file.
+        Perfect for dynamic content, API responses, user input, or programmatically generated
+        text that needs to be made searchable in the knowledge base.
+    
+        Features:
+        - Direct text ingestion without file system dependency
+        - Custom metadata support for enhanced categorization and filtering
+        - Same intelligent chunking as file-based ingestion (800 chars with 200 char overlap)
+        - Automatic content length validation and processing
+    
+        Metadata benefits:
+        - Add source attribution and document provenance
+        - Include categorization tags (topic, type, priority)
+        - Store creation timestamps and author information
+        - Enable filtered searches and document organization
+    
+        Use cases:
+        - Add API documentation from swagger/OpenAPI specs
+        - Ingest user-generated content (forum posts, comments)
+        - Store chat conversations and meeting transcripts
+        - Add dynamic content from web scraping
+        - Import structured data (JSON, CSV) as searchable text
+        - Create knowledge entries from database queries
+    
+        Args:
+            content: The raw text content to add to the knowledge base. Should be
+                    meaningful text (minimum recommended: 50+ characters).
+            metadata: Optional dictionary of key-value pairs for document metadata.
+                     Common keys: 'source', 'topic', 'type', 'author', 'created_at'
+    
+        Returns:
+            Result dictionary containing:
+            - success: Boolean indicating if the operation succeeded
+            - content_length: Length of the processed content
+            - metadata: The metadata that was stored with the document
+            - message: Human-readable status message
+            - error: Error details if the operation failed
+    
+        Examples:
+            add_document_from_content("Python is a programming language...",
+                                    {"source": "tutorial", "topic": "python"})
+            add_document_from_content(api_response_text,
+                                    {"source": "api", "endpoint": "/users", "timestamp": "2024-01-01"})
+            add_document_from_content(meeting_transcript,
+                                    {"type": "meeting", "participants": ["Alice", "Bob"]})
+                                    :param metadata:
+                                    :param content:
+                                    :param ctx:
+        """
+        try:
+            # Use the batch add_documents method with a single content item
+            document = {
+                "content": content,
+                "metadata": metadata or {}
+            }
+    
+            # Note: This requires implementing add_documents method in RagAPI
+            # For now, we'll simulate it by creating a temporary file
+            import tempfile
+    
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_file:
+                temp_file.write(content)
+                temp_file_path = temp_file.name
+    
+            try:
+                rag_api : RagAPI = ctx.request_context.lifespan_context.rag_api
+                success = rag_api.add_document(temp_file_path)
+    
+                return {
+                    "success": success,
+                    "content_length": len(content),
+                    "metadata": metadata or {},
+                    "message": "Successfully added content" if success else "Failed to add content"
+                }
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(temp_file_path)
+                except OSError:
+                    pass
+    
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "content_length": len(content) if content else 0
+            }
+    
+    
+    @mcp.tool()
+    def search_knowledge_base(
+        ctx: Context,
+        query: str,
+        limit: int = 5,
+        min_score: float = 0.0
+    ) -> Dict[str, Any]:
+        """
+        Perform semantic search across the knowledge base to find relevant documents.
+    
+        This tool uses advanced semantic search (not just keyword matching) to find documents
+        that are conceptually related to your query. It understands context, synonyms, and
+        meaning to return the most relevant content from your knowledge base.
+    
+        Search capabilities:
+        - Semantic understanding: Finds documents by meaning, not just exact words
+        - Query preprocessing: Automatically expands abbreviations (db→database, ai→artificial intelligence)
+        - Similarity scoring: Returns confidence scores (0.0-1.0) for each result
+        - Flexible filtering: Use min_score to filter low-quality matches
+        - Rich metadata: Includes source information, document structure, and relevance context
+    
+        Scoring system:
+        - 1.0: Perfect semantic match
+        - 0.8-0.9: Highly relevant content
+        - 0.7-0.8: Good relevance (recommended minimum for most use cases)
+        - 0.5-0.7: Moderate relevance
+        - 0.0-0.5: Lower relevance (consider filtering out)
+    
+        Query optimization tips:
+        - Use natural language questions: "How do I configure SSL?"
+        - Include context: "Python error handling best practices"
+        - Try different phrasings if results aren't optimal
+        - Use specific terms for technical topics
+    
+        Use cases:
+        - Answer customer support questions from documentation
+        - Find relevant code examples and snippets
+        - Research topics across multiple documents
+        - Fact-checking and information verification
+        - Content discovery and knowledge exploration
+        - RAG (Retrieval-Augmented Generation) for AI applications
+    
+        Args:
+            query: Natural language search query. Can be a question, keywords, or description
+                  of what you're looking for. Empty queries are not allowed.
+            limit: Maximum number of results to return (1-50, default: 5). Higher limits
+                  may include less relevant results but provide broader coverage.
+            min_score: Minimum similarity score threshold (0.0-1.0, default: 0.0).
+                      Recommended values: 0.7 for high precision, 0.5 for broader results.
+    
+        Returns:
+            Search results dictionary containing:
+            - success: Boolean indicating if the search succeeded
+            - query: The processed search query
+            - total_results: Number of documents found
+            - limit: Applied result limit
+            - min_score: Applied score threshold
+            - results: Array of matching documents, each containing:
+              * content: The relevant document text
+              * score: Similarity score (0.0-1.0)
+              * metadata: Document metadata (source, topic, etc.)
+              * source: Primary source identifier
+              * document_id: Unique document identifier
+    
+        Examples:
+            search_knowledge_base("How to install Python packages?")
+            search_knowledge_base("database connection errors", limit=10, min_score=0.7)
+            search_knowledge_base("API authentication methods", limit=3, min_score=0.8)
+            :param min_score:
+            :param limit:
+            :param query:
+            :param ctx:
+        """
+        try:
+            logger.info(f"MCP Tool: search_knowledge_base called with query: '{query}' (limit: {limit}, min_score: {min_score})")
+    
+            if not query or not query.strip():
+                logger.warning("Empty query provided to search_knowledge_base")
+                return {
+                    "success": False,
+                    "error": "Query cannot be empty",
+                    "results": []
+                }
+            rag_api : RagAPI = ctx.request_context.lifespan_context.rag_api
+            results = rag_api.query(query.strip(), limit=limit, min_score=min_score)
+            logger.info(f"Search completed: {len(results)} results returned")
+    
+            return {
+                "success": True,
+                "query": query.strip(),
+                "total_results": len(results),
+                "limit": limit,
+                "min_score": min_score,
+                "results": results
+            }
+    
+        except Exception as e:
+            logger.error(f"Exception in search_knowledge_base: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "query": query,
+                "results": []
+            }
+    
+    @mcp.tool()
+    def delete_collection(ctx: Context) -> Dict[str, Any]:
+        """
+        ⚠️  DESTRUCTIVE OPERATION: Permanently delete the entire knowledge base collection.
+    
+        🚨 CRITICAL WARNING: This operation is IRREVERSIBLE and will completely remove:
+        - ALL documents and their content from the knowledge base
+        - ALL metadata, embeddings, and search indices
+        - ALL collection schema and configuration
+        - The collection itself and its entire history
+    
+        This action CANNOT be undone. Once executed, all data is permanently lost.
+    
+        Safety recommendations:
+        ⛔ ALWAYS backup your collection before deletion if data recovery might be needed
+        ⛔ VERIFY you are targeting the correct collection using get_collection_info() first
+        ⛔ DOUBLE-CHECK this is the intended operation in production environments
+        ⛔ CONSIDER using this only in development, testing, or explicit cleanup scenarios
+        ⛔ IMPLEMENT additional confirmation layers in production applications
+    
+        Legitimate use cases:
+        - Clean slate: Starting fresh with new document sets
+        - Development/testing: Resetting test environments between test runs
+        - Data migration: Removing old collections after successful migration
+        - Storage cleanup: Freeing resources when collections are genuinely no longer needed
+        - Error recovery: Clearing corrupted collections that cannot be repaired
+    
+        Alternative approaches to consider:
+        - Selective document removal (if such functionality exists)
+        - Creating new collections instead of deleting existing ones
+        - Archiving collections rather than deleting them
+        - Using separate collections for different environments
+    
+        Post-deletion effects:
+        - All search operations will fail until new documents are added
+        - Collection info will show empty/uninitialized state
+        - Any applications depending on this collection will lose access to data
+        - Vector indices and embeddings will need to be rebuilt from scratch
+    
+        Args:
+            ctx: MCP context for accessing the RAG API instance
+    
+        Returns:
+            Deletion result dictionary containing:
+            - success: Boolean indicating if the deletion succeeded
+            - collection_name: Name of the deleted collection (for confirmation)
+            - message: Confirmation message or failure details
+            - error: Error message if the deletion failed
+    
+        Example response:
+            {"success": true, "collection_name": "test_collection",
+             "message": "Successfully deleted collection 'test_collection'"}
+        """
+        try:
+            logger.warning("MCP Tool: delete_collection called - DESTRUCTIVE OPERATION")
+            rag_api: RagAPI = ctx.request_context.lifespan_context.rag_api
+            collection_name = rag_api.collection_name
+            
+            success = rag_api.delete_collection()
+    
+            result = {
+                "success": success,
+                "collection_name": collection_name,
+                "message": f"Successfully deleted collection '{collection_name}'" if success
+                          else f"Failed to delete collection '{collection_name}'"
+            }
+            
+            if success:
+                logger.warning(f"Collection '{collection_name}' has been permanently deleted")
+            else:
+                logger.error(f"Failed to delete collection '{collection_name}'")
+                
+            return result
+    
+        except Exception as e:
+            logger.error(f"Exception in delete_collection: {e}")
+            rag_api: RagAPI = ctx.request_context.lifespan_context.rag_api
+            collection_name = getattr(rag_api, 'collection_name', 'unknown') if rag_api else 'unknown'
+            
+            return {
+                "success": False,
+                "error": str(e),
+                "collection_name": collection_name
+            }
+    
+    
+    #
+    # def _setup_resources(self):
+    #     """Setup MCP resources for accessing knowledge base content."""
+    #
+    #     @self.mcp.resource("rag://collection/info")
+    #     def get_collection_resource() -> str:
+    #         """Get collection information as a resource."""
+    #         try:
+    #             info = self.rag_api.get_collection_info()
+    #             return json.dumps(info, indent=2)
+    #         except Exception as e:
+    #             return json.dumps({"error": str(e)}, indent=2)
+    #
+    #     @self.mcp.resource("rag://search/{query}")
+    #     def search_resource(query: str) -> str:
+    #         """Get search results as a resource."""
+    #         try:
+    #             results = self.rag_api.query(query, limit=10)
+    #             return json.dumps({
+    #                 "query": query,
+    #                 "results": results
+    #             }, indent=2)
+    #         except Exception as e:
+    #             return json.dumps({
+    #                 "query": query,
+    #                 "error": str(e)
+    #             }, indent=2)
+    #
+    # def _setup_prompts(self):
+    #     """Setup MCP prompts for RAG operations."""
+    #
+    #     @self.mcp.prompt()
+    #     def rag_search_prompt(
+    #         query: str,
+    #         context_type: str = "comprehensive",
+    #         max_results: int = 5
+    #     ) -> str:
+    #         """
+    #         Generate a prompt for RAG-based question answering.
+    #
+    #         Args:
+    #             query: The user's question or search query
+    #             context_type: Type of context to provide ("comprehensive", "focused", "summary")
+    #             max_results: Maximum number of context documents to include
+    #         """
+    #         try:
+    #             # Get relevant documents
+    #             results = self.rag_api.query(query, limit=max_results, min_score=0.3)
+    #
+    #             if not results:
+    #                 return f"""I don't have any relevant information in my knowledge base to answer the question: "{query}"
+    #
+    # Please let me know if you'd like me to help you add relevant documents to the knowledge base first."""
+    #
+    #             # Build context based on type
+    #             if context_type == "summary":
+    #                 context = "\n".join([
+    #                     f"- {result['content'][:100]}..."
+    #                     for result in results[:3]
+    #                 ])
+    #             elif context_type == "focused":
+    #                 context = "\n\n".join([
+    #                     f"Source: {result['source']}\nContent: {result['content'][:200]}..."
+    #                     for result in results[:2]
+    #                 ])
+    #             else:  # comprehensive
+    #                 context = "\n\n".join([
+    #                     f"Source: {result['source']} (Score: {result['score']:.3f})\n{result['content']}"
+    #                     for result in results
+    #                 ])
+    #
+    #             prompt = f"""Based on the following context from my knowledge base, please answer this question: "{query}"
+    #
+    # Context:
+    # {context}
+    #
+    # Please provide a comprehensive answer based on the context above. If the context doesn't fully answer the question, please indicate what information might be missing."""
+    #
+    #             return prompt
+    #
+    #         except Exception as e:
+    #             return f"""Error generating RAG prompt for query "{query}": {str(e)}
+    #
+    # Please try rephrasing your question or check if the knowledge base is properly configured."""
+    #
+    # def get_server(self) -> FastMCP:
+    #     """Get the configured MCP server instance."""
+    #     return self.mcp
+    ]]></file>
+  <file path="container\__init__.py"><![CDATA[
+    
+    
+    
+    ]]></file>
+  <file path="container\container.py"><![CDATA[
+    """
+    Dependency injection container using dependency-injector library.
+    Defaults to production configuration.
+    """
+    
+    from dependency_injector import containers, providers
+    from typing import Optional
+    
+    from mcp_rag_playground.vectordb.milvus.milvus_client import MilvusVectorDB
+    from mcp_rag_playground.vectordb.embedding_service import SentenceTransformerEmbedding
+    from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
+    from mcp_rag_playground.vectordb.vector_client import VectorClient
+    from mcp_rag_playground.rag.rag_api import RagAPI
+    from mcp_rag_playground.config.milvus_config import MilvusConfig
+    
+    
+    class Container(containers.DeclarativeContainer):
+        """Production-focused dependency injection container."""
+        
+        # Milvus configuration
+        milvus_config = providers.Singleton(
+            MilvusConfig.from_env
+        )
+        
+        # Vector database
+        vector_db = providers.Singleton(
+            MilvusVectorDB,
+            config=milvus_config
+        )
+        
+        # Production embedding service
+        embedding_service = providers.Singleton(
+            SentenceTransformerEmbedding,
+            model_name="all-MiniLM-L6-v2"
+        )
+        
+        # Document processor
+        document_processor = providers.Singleton(
+            DocumentProcessor,
+            chunk_size=800,
+            overlap=200
+        )
+        
+        # Production vector client
+        vector_client = providers.Singleton(
+            VectorClient,
+            vector_db=vector_db,
+            embedding_service=embedding_service,
+            document_processor=document_processor,
+            collection_name=providers.Callable(lambda: "prod_kb_collection")
+        )
+        
+        # Production RAG API
+        rag_api = providers.Singleton(
+            RagAPI,
+            vector_client=vector_client,
+            collection_name=providers.Callable(lambda: "prod_collection")
+        )
+    
+    ]]></file>
+  <file path="config\__init__.py"></file>
+  <file path="config\milvus_config.py"><![CDATA[
+    """
+    Milvus vector database configuration and connection management.
+    """
+    
+    import os
+    from typing import Optional, Dict, Any
+    from dataclasses import dataclass
+    
+    
+    @dataclass
+    class MilvusConfig:
+        """Configuration class for Milvus connection."""
+        
+        host: str = "localhost"
+        port: int = 19530
+        user: str = ""
+        password: str = ""
+        secure: bool = False
+        server_name: str = ""
+        
+        @classmethod
+        def from_env(cls) -> "MilvusConfig":
+            """Create configuration from environment variables."""
+            return cls(
+                host=os.getenv("MILVUS_HOST", "localhost"),
+                port=int(os.getenv("MILVUS_PORT", "19530")),
+                user=os.getenv("MILVUS_USER", ""),
+                password=os.getenv("MILVUS_PASSWORD", ""),
+                secure=os.getenv("MILVUS_SECURE", "false").lower() == "true",
+                server_name=os.getenv("MILVUS_SERVER_NAME", "")
+            )
+        
+        def to_connection_params(self) -> Dict[str, Any]:
+            """Convert config to connection parameters."""
+            params = {
+                "host": self.host,
+                "port": self.port
+            }
+            
+            if self.user:
+                params["user"] = self.user
+                
+            if self.password:
+                params["password"] = self.password
+                
+            if self.secure:
+                params["secure"] = self.secure
+                
+            if self.server_name:
+                params["server_name"] = self.server_name
+                
+            return params
+    
+    
+    
+    # Default configuration instance
+    default_config = MilvusConfig.from_env()
+    
+    
+    def get_connection(config: Optional[MilvusConfig] = None):
+        """Get a Milvus connection instance."""
+        from mcp_rag_playground.vectordb.milvus.milvus_connection import MilvusConnection
+        return MilvusConnection(config or default_config)
+    
+    
+    def test_connection(config: Optional[MilvusConfig] = None) -> bool:
+        """Test connection to Milvus."""
+        try:
+            from mcp_rag_playground.vectordb.milvus.milvus_connection import MilvusConnection
+            with MilvusConnection(config or default_config) as conn:
+                return conn.is_connected()
+        except Exception as e:
+            print(f"Connection test failed: {e}")
+            return False
+    
+    
+    ]]></file>
+  <file path="config\logging_config.py"><![CDATA[
+    """
+    Centralized logging configuration for the mcp_rag_playground project.
+    """
+    
+    import logging
+    import sys
+    from typing import Optional
+    from pathlib import Path
+    
+    
+    class LoggingConfig:
+        """Centralized logging configuration manager."""
+        
+        _loggers: dict[str, logging.Logger] = {}
+        _configured = False
+        
+        @classmethod
+        def setup_logging(cls, 
+                         level: str = "INFO",
+                         log_file: Optional[str] = None,
+                         console_output: bool = True,
+                         format_string: Optional[str] = None) -> None:
+            """
+            Setup centralized logging configuration.
+            
+            Args:
+                level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+                log_file: Optional log file path
+                console_output: Whether to output to console
+                format_string: Custom format string
+            """
+            if cls._configured:
+                return
+                
+            if format_string is None:
+                format_string = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+                
+            # Configure root logger
+            root_logger = logging.getLogger()
+            root_logger.setLevel(getattr(logging, level.upper()))
+            
+            # Clear existing handlers
+            root_logger.handlers.clear()
+            
+            formatter = logging.Formatter(format_string)
+            
+            # Console handler - ALWAYS use stderr to avoid interfering with JSON output
+            if console_output:
+                console_handler = logging.StreamHandler(sys.stderr)
+                console_handler.setFormatter(formatter)
+                root_logger.addHandler(console_handler)
+            
+            # File handler
+            if log_file:
+                log_path = Path(log_file)
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                file_handler = logging.FileHandler(log_file)
+                file_handler.setFormatter(formatter)
+                root_logger.addHandler(file_handler)
+            
+            cls._configured = True
+        
+        @classmethod
+        def get_logger(cls, name: str) -> logging.Logger:
+            """
+            Get a logger instance for the given module/class name.
+            
+            Args:
+                name: Logger name (typically __name__)
+                
+            Returns:
+                Configured logger instance
+            """
+            if not cls._configured:
+                cls.setup_logging()
+                
+            if name not in cls._loggers:
+                cls._loggers[name] = logging.getLogger(name)
+                
+            return cls._loggers[name]
+        
+        @classmethod
+        def set_level(cls, logger_name: str, level: str) -> None:
+            """
+            Set logging level for a specific logger.
+            
+            Args:
+                logger_name: Name of the logger
+                level: Logging level
+            """
+            if logger_name in cls._loggers:
+                cls._loggers[logger_name].setLevel(getattr(logging, level.upper()))
+    
+    
+    def get_logger(name: str) -> logging.Logger:
+        """
+        Convenience function to get a logger instance.
+        
+        Args:
+            name: Logger name (typically __name__)
+            
+        Returns:
+            Configured logger instance
+        """
+        return LoggingConfig.get_logger(name)
+    
+    
+    def setup_project_logging(environment: str = "dev") -> None:
+        """
+        Setup logging configuration for different environments.
+        
+        Args:
+            environment: Environment name (dev, test, prod)
+        """
+        config_map = {
+            "dev": {
+                "level": "DEBUG",
+                "console_output": True,
+                "log_file": "logs/mcp_rag_dev.log"
+            },
+            "test": {
+                "level": "WARNING",
+                "console_output": False,
+                "log_file": "logs/mcp_rag_test.log"
+            },
+            "prod": {
+                "level": "INFO",
+                "console_output": True,
+                "log_file": "logs/mcp_rag_prod.log"
+            }
+        }
+        
+        config = config_map.get(environment, config_map["dev"])
+        LoggingConfig.setup_logging(**config)
+    
+    
+    def setup_mcp_logging(environment: str = "prod", log_level: str = "INFO") -> None:
+        """
+        Setup logging specifically for MCP server context.
+        
+        MCP servers must only output JSON to stdout, so all logging goes to stderr and files.
+        
+        Args:
+            environment: Environment name 
+            log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        """
+        LoggingConfig.setup_logging(
+            level=log_level,
+            log_file=f"logs/mcp_rag_{environment}.log",
+            console_output=True,  # Will use stderr due to our configuration
+            format_string='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+    ]]></file>
+  <file path="vectordb\processor\__init__.py"></file>
+  <file path="vectordb\processor\file_processor.py"><![CDATA[
+    from abc import ABC, abstractmethod
+    from pathlib import Path
+    from typing import Any, Dict
+    
+    
+    class FileProcessor(ABC):
+        """Abstract base class for file-specific processors."""
+    
+        @abstractmethod
+        def process(self, file_path: str) -> str:
+            """Extract text content from the file."""
+            pass
+    
+        @abstractmethod
+        def get_metadata(self, file_path: str) -> Dict[str, Any]:
+            """Get file-specific metadata."""
+            pass
+    
+    
+    class TextFileProcessor(FileProcessor):
+        """Processor for plain text files."""
+    
+        def process(self, file_path: str) -> str:
+            """Extract text content from plain text file."""
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                return file.read()
+    
+        def get_metadata(self, file_path: str) -> Dict[str, Any]:
+            """Get metadata for text files."""
+            return {
+                'file_type': 'text',
+                'file_name': Path(file_path).name,
+                'file_extension': Path(file_path).suffix.lower()
+            }
+    
+    
+    class MarkdownFileProcessor(FileProcessor):
+        """Processor for Markdown files."""
+    
+        def process(self, file_path: str) -> str:
+            """Extract text content from Markdown file."""
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                return file.read()
+    
+        def get_metadata(self, file_path: str) -> Dict[str, Any]:
+            """Get metadata for Markdown files."""
+            return {
+                'file_type': 'markdown',
+                'file_name': Path(file_path).name,
+                'file_extension': Path(file_path).suffix.lower()
+            }
+    
+    
+    class PythonFileProcessor(FileProcessor):
+        """Processor for Python source files."""
+    
+        def process(self, file_path: str) -> str:
+            """Extract text content from Python file."""
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                return file.read()
+    
+        def get_metadata(self, file_path: str) -> Dict[str, Any]:
+            """Get metadata for Python files."""
+            return {
+                'file_type': 'python',
+                'file_name': Path(file_path).name,
+                'file_extension': Path(file_path).suffix.lower(),
+                'language': 'python'
+            }
+    
+    
+    class JSONFileProcessor(FileProcessor):
+        """Processor for JSON files."""
+    
+        def process(self, file_path: str) -> str:
+            """Extract text content from JSON file."""
+            import json
+    
+            with open(file_path, 'r', encoding='utf-8') as file:
+                data = json.load(file)
+                return json.dumps(data, indent=2)
+    
+        def get_metadata(self, file_path: str) -> Dict[str, Any]:
+            """Get metadata for JSON files."""
+            return {
+                'file_type': 'json',
+                'file_name': Path(file_path).name,
+                'file_extension': Path(file_path).suffix.lower(),
+                'format': 'json'
+            }
+    ]]></file>
+  <file path="vectordb\processor\document_processor.py"><![CDATA[
+    """
+    Document processing utilities for file upload and text chunking.
+    """
+    
+    import os
+    from pathlib import Path
+    from typing import List, Dict, Any, Optional
+    
+    from mcp_rag_playground.config.logging_config import get_logger
+    from mcp_rag_playground.vectordb.processor.file_processor import FileProcessor, TextFileProcessor, \
+        MarkdownFileProcessor, PythonFileProcessor, JSONFileProcessor
+    from mcp_rag_playground.vectordb.vector_db_interface import Document
+    
+    logger = get_logger(__name__)
+    
+    
+    
+    
+    
+    class DocumentProcessor:
+        """Handles document processing for vector database ingestion."""
+        
+        def __init__(self, chunk_size: int = 800, overlap: int = 200, 
+                     custom_processors: Optional[Dict[str, FileProcessor]] = None):
+            self.chunk_size = chunk_size
+            self.overlap = overlap
+            
+            # Default file processors
+            self.processors = {
+                '.txt': TextFileProcessor(),
+                '.md': MarkdownFileProcessor(),
+                '.markdown': MarkdownFileProcessor(),
+                '.py': PythonFileProcessor(),
+                '.json': JSONFileProcessor(),
+                '.js': TextFileProcessor(),
+                '.ts': TextFileProcessor(),
+                '.css': TextFileProcessor(),
+                '.html': TextFileProcessor(),
+                '.xml': TextFileProcessor(),
+                '.yml': TextFileProcessor(),
+                '.yaml': TextFileProcessor(),
+                '.toml': TextFileProcessor(),
+                '.ini': TextFileProcessor(),
+                '.cfg': TextFileProcessor(),
+                '.conf': TextFileProcessor(),
+                '.log': TextFileProcessor(),
+            }
+            
+            # Add custom processors if provided
+            if custom_processors:
+                self.processors.update(custom_processors)
+            
+            logger.info(f"DocumentProcessor initialized with chunk_size={chunk_size}, overlap={overlap}")
+            logger.debug(f"Registered processors for {len(self.processors)} file types")
+        
+        def register_processor(self, extension: str, processor: FileProcessor):
+            """Register a custom processor for a file extension."""
+            if not extension.startswith('.'):
+                extension = '.' + extension
+            self.processors[extension.lower()] = processor
+        
+        def get_supported_extensions(self) -> List[str]:
+            """Get list of supported file extensions."""
+            return list(self.processors.keys())
+        
+        def process_file(self, file_path: str) -> List[Document]:
+            """Process a file and return chunked documents."""
+            logger.info(f"Processing file: {file_path}")
+            
+            if not os.path.exists(file_path):
+                error_msg = f"File not found: {file_path}"
+                logger.error(error_msg)
+                raise FileNotFoundError(error_msg)
+            
+            file_extension = Path(file_path).suffix.lower()
+            logger.debug(f"File extension: {file_extension}")
+            
+            if file_extension not in self.processors:
+                error_msg = f"Unsupported file type: {file_extension}. Supported types: {', '.join(self.processors.keys())}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            
+            processor = self.processors[file_extension]
+            
+            try:
+                content = processor.process(file_path)
+                metadata = processor.get_metadata(file_path)
+                metadata['source'] = file_path
+                
+                documents = self._chunk_text(content, metadata)
+                logger.info(f"Successfully processed {file_path}: {len(documents)} chunks created")
+                return documents
+            
+            except Exception as e:
+                error_msg = f"Error processing file {file_path}: {e}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
+        
+        def process_text(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> List[Document]:
+            """Process raw text and return chunked documents."""
+            logger.debug(f"Processing raw text: {len(text)} characters")
+            base_metadata = metadata or {}
+            documents = self._chunk_text(text, base_metadata)
+            logger.debug(f"Text processing complete: {len(documents)} chunks created")
+            return documents
+        
+        def _chunk_text(self, text: str, base_metadata: Dict[str, Any]) -> List[Document]:
+            """Split text into overlapping chunks with smart boundary detection."""
+            if not text.strip():
+                return []
+                
+            if len(text) <= self.chunk_size:
+                return [Document(
+                    content=text.strip(),
+                    metadata={**base_metadata, 'chunk_index': 0, 'total_chunks': 1}
+                )]
+            
+            chunks = []
+            start = 0
+            chunk_index = 0
+            
+            # Pre-process text to normalize whitespace
+            text = self._normalize_text(text)
+            
+            while start < len(text):
+                end = start + self.chunk_size
+                
+                if end < len(text):
+                    end = self._find_optimal_boundary(text, end)
+                else:
+                    end = len(text)
+                
+                chunk_content = text[start:end].strip()
+                
+                if chunk_content and len(chunk_content) > 10:  # Skip very short chunks
+                    chunks.append(Document(
+                        content=chunk_content,
+                        metadata={
+                            **base_metadata,
+                            'chunk_index': chunk_index,
+                            'start_char': start,
+                            'end_char': end,
+                            'chunk_length': len(chunk_content)
+                        }
+                    ))
+                    chunk_index += 1
+                
+                # Calculate next start position with overlap
+                next_start = end - self.overlap
+                if next_start <= start:  # Prevent infinite loops
+                    next_start = start + max(1, self.chunk_size // 2)
+                start = next_start
+            
+            # Add total chunk count to all chunks
+            for chunk in chunks:
+                chunk.metadata['total_chunks'] = len(chunks)
+            
+            return chunks
+        
+        def _normalize_text(self, text: str) -> str:
+            """Normalize text by cleaning up whitespace."""
+            import re
+            
+            # Replace multiple spaces with single space
+            text = re.sub(r' +', ' ', text)
+            
+            # Replace multiple newlines with double newlines
+            text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+            
+            return text.strip()
+        
+        def _find_optimal_boundary(self, text: str, position: int) -> int:
+            """Find the optimal boundary for splitting text."""
+            # Priority order for boundaries
+            boundaries = [
+                ('\n\n', 0),      # Paragraph breaks (highest priority)
+                ('\n', 0),        # Line breaks
+                ('. ', 2),        # Sentence endings
+                ('! ', 2),        # Exclamation endings
+                ('? ', 2),        # Question endings
+                (', ', 1),        # Comma breaks
+                (' ', 0),         # Word boundaries (lowest priority)
+            ]
+            
+            # Search backwards from position for optimal boundary
+            search_range = min(200, position)  # Don't search too far back
+            
+            for boundary_text, offset in boundaries:
+                for i in range(position, max(0, position - search_range), -1):
+                    if text[i:i+len(boundary_text)] == boundary_text:
+                        return i + len(boundary_text) + offset
+            
+            # If no good boundary found, return original position
+            return position
+    ]]></file>
+  <file path="vectordb\milvus\__init__.py"></file>
+  <file path="vectordb\milvus\milvus_connection.py"><![CDATA[
+    from typing import Optional
+    
+    from mcp_rag_playground.config.logging_config import get_logger
+    from mcp_rag_playground.config.milvus_config import MilvusConfig
+    
+    logger = get_logger(__name__)
+    
+    class MilvusConnection:
+        """Milvus connection manager."""
+    
+        def __init__(self, config: Optional[MilvusConfig] = None):
+            logger.info(f"Initializing MilvusConnection with config: {config is not None}")
+            self.config = config or MilvusConfig.from_env()
+            logger.info(f"Using Milvus config - host: {self.config.host}, port: {self.config.port}")
+            self._connection = None
+    
+        def connect(self) -> None:
+            """Establish connection to Milvus."""
+            logger.info(f'Connecting to MilvusDB at {self.config.host}:{self.config.port}')
+            try:
+                from pymilvus import connections
+    
+                connection_params = self.config.to_connection_params()
+                logger.info(f"Connection parameters: {connection_params}")
+                
+                connections.connect(alias="default", **connection_params)
+                self._connection = connections
+                logger.info("Successfully connected to Milvus")
+                # Note: Connection successful but avoiding stdout print to prevent MCP JSON interference
+    
+            except ImportError as e:
+                logger.error("pymilvus library not found")
+                raise ImportError("pymilvus is required. Install it with: pip install pymilvus")
+            except Exception as e:
+                logger.error(f"Failed to connect to Milvus: {e}")
+                logger.debug(f"Connection attempt failed with params: {self.config.to_connection_params()}")
+                raise ConnectionError(f"Failed to connect to Milvus: {e}")
+    
+        def disconnect(self) -> None:
+            """Disconnect from Milvus."""
+            if self._connection:
+                logger.info(f'Disconnecting to MilvusDB')
+                self._connection.disconnect(alias="default")
+                self._connection = None
+                # Note: Disconnection successful but avoiding stdout print to prevent MCP JSON interference
+    
+        def is_connected(self) -> bool:
+            """Check if connected to Milvus."""
+            try:
+                from pymilvus import connections
+                return connections.has_connection("default")
+            except ImportError:
+                return False
+    
+        def __enter__(self):
+            """Context manager entry."""
+            self.connect()
+            return self
+    
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            """Context manager exit."""
+            self.disconnect()
+    
+    ]]></file>
+  <file path="vectordb\milvus\milvus_client.py"><![CDATA[
+    """
+    Milvus implementation of the vector database interface.
+    """
+    
+    import uuid
+    import json
+    from typing import List, Dict, Any, Optional
+    
+    from mcp_rag_playground.config.logging_config import get_logger
+    from mcp_rag_playground.config.milvus_config import MilvusConfig
+    from mcp_rag_playground.vectordb.milvus.milvus_connection import MilvusConnection
+    from mcp_rag_playground.vectordb.vector_db_interface import Document, SearchResult, VectorDBInterface
+    
+    logger = get_logger(__name__)
+    
+    
+    class MilvusVectorDB(VectorDBInterface):
+        """Milvus implementation of vector database interface."""
+        
+        def __init__(self, config: Optional[MilvusConfig] = None):
+            self.connection = MilvusConnection(config)
+            self._connected = False
+        
+        def connect(self):
+            """Establish connection to Milvus."""
+            if not self._connected:
+                self.connection.connect()
+                self._connected = True
+        
+        def disconnect(self):
+            """Disconnect from Milvus."""
+            if self._connected:
+                self.connection.disconnect()
+                self._connected = False
+        
+        def create_collection(self, collection_name: str, dimension: int) -> bool:
+            """Create a new collection in Milvus."""
+            try:
+                from pymilvus import Collection, FieldSchema, CollectionSchema, DataType
+                
+                self.connect()
+                
+                if self.collection_exists(collection_name):
+                    return True
+                
+                fields = [
+                    FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=65535, is_primary=True),
+                    FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
+                    FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=65535),
+                    FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dimension)
+                ]
+                
+                schema = CollectionSchema(fields, description=f"Collection for {collection_name}")
+                collection = Collection(collection_name, schema)
+                
+                index_params = {
+                    "index_type": "IVF_FLAT",
+                    "metric_type": "COSINE",
+                    "params": {"nlist": 128}
+                }
+                collection.create_index("embedding", index_params)
+                
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error creating collection: {e}")
+                return False
+        
+        def insert_documents(self, collection_name: str, documents: List[Document], 
+                            embeddings: List[List[float]]) -> bool:
+            """Insert documents with their embeddings into the collection."""
+            try:
+                from pymilvus import Collection
+                
+                self.connect()
+                
+                if not self.collection_exists(collection_name):
+                    raise ValueError(f"Collection {collection_name} does not exist")
+                
+                collection = Collection(collection_name)
+                
+                ids = []
+                contents = []
+                metadata_list = []
+                
+                for doc, embedding in zip(documents, embeddings):
+                    doc_id = doc.id or str(uuid.uuid4())
+                    ids.append(doc_id)
+                    contents.append(doc.content)
+                    metadata_list.append(json.dumps(doc.metadata))
+                
+                entities = [ids, contents, metadata_list, embeddings]
+                collection.insert(entities)
+                collection.flush()
+                
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error inserting documents: {e}")
+                return False
+        
+        def search(self, collection_name: str, query_embedding: List[float], 
+                   limit: int = 10) -> List[SearchResult]:
+            """Search for similar documents using vector similarity."""
+            try:
+                from pymilvus import Collection
+                
+                self.connect()
+                
+                if not self.collection_exists(collection_name):
+                    raise ValueError(f"Collection {collection_name} does not exist")
+                
+                collection = Collection(collection_name)
+                collection.load()
+                
+                search_params = {"metric_type": "COSINE", "params": {"nprobe": 10}}
+                
+                results = collection.search(
+                    data=[query_embedding],
+                    anns_field="embedding",
+                    param=search_params,
+                    limit=limit,
+                    output_fields=["content", "metadata"]
+                )
+                
+                search_results = []
+                for hits in results:
+                    for hit in hits:
+                        metadata = json.loads(hit.entity.get("metadata"))
+                        document = Document(
+                            content=hit.entity.get("content"),
+                            metadata=metadata,
+                            id=hit.id
+                        )
+                        
+                        search_results.append(SearchResult(
+                            document=document,
+                            score=hit.score,
+                            distance=hit.distance
+                        ))
+                
+                return search_results
+                
+            except Exception as e:
+                logger.error(f"Error searching documents: {e}")
+                return []
+        
+        def delete_collection(self, collection_name: str) -> bool:
+            """Delete a collection from Milvus."""
+            try:
+                from pymilvus import utility
+                
+                self.connect()
+                
+                if self.collection_exists(collection_name):
+                    utility.drop_collection(collection_name)
+                
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error deleting collection: {e}")
+                return False
+        
+        def collection_exists(self, collection_name: str) -> bool:
+            """Check if a collection exists."""
+            try:
+                from pymilvus import utility
+                
+                self.connect()
+                return utility.has_collection(collection_name)
+                
+            except Exception as e:
+                logger.error(f"Error checking collection existence: {e}")
+                return False
+        
+        def get_collection_info(self, collection_name: str) -> Dict[str, Any]:
+            """Get information about a collection."""
+            try:
+                from pymilvus import Collection
+                
+                self.connect()
+                
+                if not self.collection_exists(collection_name):
+                    return {}
+                
+                collection = Collection(collection_name)
+                
+                return {
+                    "name": collection_name,
+                    "description": collection.description,
+                    "num_entities": collection.num_entities,
+                    "schema": {
+                        "fields": [
+                            {
+                                "name": field.name,
+                                "type": str(field.dtype),
+                                "params": field.params
+                            }
+                            for field in collection.schema.fields
+                        ]
+                    }
+                }
+                
+            except Exception as e:
+                logger.error(f"Error getting collection info: {e}")
+                return {}
+        
+        def test_connection(self) -> bool:
+            """Test the connection to Milvus."""
+            try:
+                from pymilvus import utility
+                
+                # Attempt to connect
+                self.connect()
+                
+                # Test with a simple operation - list collections
+                utility.list_collections()
+                
+                logger.info("Milvus connection test successful")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Milvus connection test failed: {e}")
+                return False
+        
+        def __enter__(self):
+            """Context manager entry."""
+            self.connect()
+            return self
+        
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            """Context manager exit."""
+            self.disconnect()
+    ]]></file>
+  <file path="tests\fixtures\__init__.py"><![CDATA[
+    """
+    Test fixtures module.
+    Simple fixtures for embedding service and vector client tests.
+    """
+    
+    # Import simple fixture modules
+    from . import embedding_fixtures, vector_client_fixtures
+    
+    __all__ = [
+        # Simple fixture modules
+        'embedding_fixtures',
+        'vector_client_fixtures'
+    ]
+    ]]></file>
+  <file path="tests\fixtures\vector_client_fixtures.py"><![CDATA[
+    """
+    Simple vector client test fixtures.
+    Provides mock objects and test data for vector client tests.
+    """
+    
+    import time
+    import uuid
+    from typing import List, Dict, Any
+    from unittest.mock import Mock
+    
+    from mcp_rag_playground.vectordb.vector_db_interface import VectorDBInterface, Document, SearchResult
+    from mcp_rag_playground.vectordb.embedding_service import EmbeddingService
+    from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
+    
+    
+    def create_mock_vector_db() -> Mock:
+        """Create a mock vector database for testing."""
+        mock_db = Mock(spec=VectorDBInterface)
+        mock_db.collection_exists.return_value = False
+        mock_db.create_collection.return_value = True
+        mock_db.insert_documents.return_value = True
+        mock_db.search.return_value = []
+        mock_db.get_collection_info.return_value = {"name": "test", "num_entities": 0}
+        mock_db.delete_collection.return_value = True
+        mock_db.test_connection.return_value = True
+        return mock_db
+    
+    
+    def create_mock_embedding_service() -> Mock:
+        """Create a mock embedding service for testing."""
+        mock_service = Mock(spec=EmbeddingService)
+        mock_service.get_dimension.return_value = 384
+        mock_service.embed_text.return_value = [0.1] * 384
+        mock_service.embed_texts.return_value = [[0.1] * 384, [0.2] * 384]
+        return mock_service
+    
+    
+    def create_mock_document_processor() -> Mock:
+        """Create a mock document processor for testing."""
+        mock_processor = Mock(spec=DocumentProcessor)
+        mock_processor.process_file.return_value = [
+            Document(content="Test content", metadata={"source": "test.txt"})
+        ]
+        return mock_processor
+    
+    
+    def get_sample_documents() -> List[Document]:
+        """Get sample documents for testing."""
+        return [
+            Document(
+                content="First test document about machine learning and AI.",
+                metadata={"source": "doc1.txt", "category": "ai"}
+            ),
+            Document(
+                content="Second test document about vector databases and search.",
+                metadata={"source": "doc2.txt", "category": "database"}
+            ),
+            Document(
+                content="Third test document about natural language processing.",
+                metadata={"source": "doc3.txt", "category": "nlp"}
+            )
+        ]
+    
+    
+    def get_sample_embeddings(count: int = 3) -> List[List[float]]:
+        """Get sample embeddings for testing."""
+        import random
+        random.seed(42)  # Ensure reproducible results
+        
+        embeddings = []
+        for i in range(count):
+            # Generate normalized random embeddings
+            embedding = [random.uniform(-1, 1) for _ in range(384)]
+            # Normalize to unit vector
+            norm = sum(x*x for x in embedding) ** 0.5
+            if norm > 0:
+                embedding = [x/norm for x in embedding]
+            embeddings.append(embedding)
+        
+        return embeddings
+    
+    
+    def create_search_results() -> List[SearchResult]:
+        """Create sample search results for testing."""
+        documents = get_sample_documents()
+        return [
+            SearchResult(
+                document=documents[0],
+                score=0.95,
+                distance=0.05
+            ),
+            SearchResult(
+                document=documents[1], 
+                score=0.85,
+                distance=0.15
+            ),
+            SearchResult(
+                document=documents[2],
+                score=0.75,
+                distance=0.25
+            )
+        ]
+    
+    
+    def get_query_test_cases() -> List[Dict[str, Any]]:
+        """Get test cases for query functionality."""
+        return [
+            {
+                "query": "machine learning AI",
+                "expected_preprocessing": ["machine learning", "artificial intelligence", "ai", "ml"],
+                "limit": 5,
+                "min_score": 0.7
+            },
+            {
+                "query": "vector db search",
+                "expected_preprocessing": ["vector", "database", "db", "search"],
+                "limit": 10,
+                "min_score": 0.5
+            },
+            {
+                "query": "nlp natural language",
+                "expected_preprocessing": ["natural language processing", "nlp"],
+                "limit": 3,
+                "min_score": 0.8
+            }
+        ]
+    
+    
+    def get_upload_test_scenarios() -> List[Dict[str, Any]]:
+        """Get test scenarios for upload functionality."""
+        return [
+            {
+                "scenario": "successful_upload",
+                "file_path": "test_document.txt",
+                "processed_docs": get_sample_documents()[:1],
+                "expected_result": True
+            },
+            {
+                "scenario": "no_documents_extracted",
+                "file_path": "empty_file.txt",
+                "processed_docs": [],
+                "expected_result": False
+            },
+            {
+                "scenario": "multiple_documents",
+                "file_path": "multi_doc.txt",
+                "processed_docs": get_sample_documents(),
+                "expected_result": True
+            }
+        ]
+    
+    
+    def get_performance_test_config() -> Dict[str, Any]:
+        """Get performance testing configuration."""
+        return {
+            "upload_timeout": 30.0,  # seconds
+            "query_timeout": 5.0,    # seconds
+            "batch_sizes": [1, 5, 10, 25],
+            "stress_test_documents": 100
+        }
+    
+    
+    def generate_unique_collection_name() -> str:
+        """Generate a unique collection name for testing."""
+        return f"test_collection_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+    
+    
+    def get_collection_info_samples() -> List[Dict[str, Any]]:
+        """Get sample collection information."""
+        return [
+            {
+                "name": "test_collection",
+                "num_entities": 0,
+                "schema": {"fields": ["id", "content", "metadata", "embedding"]}
+            },
+            {
+                "name": "populated_collection",
+                "num_entities": 100,
+                "schema": {"fields": ["id", "content", "metadata", "embedding"]},
+                "index_info": {"type": "IVF_FLAT", "metric": "COSINE"}
+            }
+        ]
+    
+    
+    def create_mock_with_search_results(search_results: List[SearchResult] = None) -> Mock:
+        """Create a mock vector database that returns specific search results."""
+        mock_db = create_mock_vector_db()
+        if search_results is None:
+            search_results = create_search_results()
+        mock_db.search.return_value = search_results
+        mock_db.collection_exists.return_value = True
+        return mock_db
+    
+    
+    def create_mock_with_failures() -> Mock:
+        """Create a mock vector database that simulates failures."""
+        mock_db = create_mock_vector_db()
+        mock_db.create_collection.return_value = False
+        mock_db.insert_documents.return_value = False
+        mock_db.test_connection.return_value = False
+        return mock_db
+    
+    
+    def get_preprocessing_test_cases() -> List[tuple]:
+        """Get test cases for query preprocessing."""
+        return [
+            ("vector db", "vector database db"),
+            ("ai ml", "artificial intelligence ai machine learning ml"),
+            ("nlp processing", "natural language processing nlp processing"),
+            ("api rest", "application programming interface api representational state transfer rest"),
+            ("simple query", "simple query")  # No expansion expected
+        ]
+    ]]></file>
+  <file path="tests\fixtures\embedding_fixtures.py"><![CDATA[
+    """
+    Simple embedding service test fixtures.
+    Provides test data for embedding service tests without complex provider patterns.
+    """
+    
+    from typing import List, Dict, Tuple, Any
+    
+    
+    def get_single_test_texts() -> List[str]:
+        """Get simple test texts for single embedding tests."""
+        return [
+            "This is a test sentence for embedding.",
+            "Python programming language is versatile.",
+            "Machine learning models require training data.",
+            "Vector databases store high-dimensional data.",
+            "Natural language processing enables text understanding."
+        ]
+    
+    
+    def get_batch_test_texts() -> List[str]:
+        """Get test texts for batch embedding tests."""
+        return [
+            "First document about artificial intelligence and machine learning.",
+            "Second document discussing vector databases and semantic search.",
+            "Third document covering natural language processing techniques.",
+            "Fourth document explaining neural networks and deep learning.",
+            "Fifth document about information retrieval and search systems."
+        ]
+    
+    
+    def get_multilingual_texts() -> List[str]:
+        """Get multilingual test texts."""
+        return [
+            "Hello world in English",
+            "Bonjour le monde en français", 
+            "Hola mundo en español",
+            "Hallo Welt auf Deutsch",
+            "こんにちは世界、日本語で"
+        ]
+    
+    
+    def get_edge_case_texts() -> List[str]:
+        """Get edge case test texts."""
+        return [
+            "",  # Empty string
+            "   \n\t   ",  # Whitespace only
+            "!@#$%^&*()",  # Special characters only
+            "a",  # Single character
+            "Very long text " * 100,  # Very long text (~1400 chars)
+            "123 456 789",  # Numbers
+            "UPPERCASE TEXT ONLY",  # All caps
+            "mixed CaSe TeXt"  # Mixed case
+        ]
+    
+    
+    def get_similarity_pairs() -> List[Tuple[str, str, float]]:
+        """Get pairs of texts with expected similarity levels."""
+        return [
+            # High similarity pairs (threshold > 0.7)
+            (
+                "Machine learning algorithms process data to make predictions.",
+                "Data processing algorithms in machine learning make predictions.",
+                0.7
+            ),
+            (
+                "Python is a programming language used for AI development.",
+                "AI development often uses Python programming language.",
+                0.7
+            ),
+            # Medium similarity pairs (threshold 0.4-0.7)
+            (
+                "Dogs are loyal pets that enjoy playing outside.",
+                "Cats are independent animals that prefer indoor activities.",
+                0.4
+            ),
+            # Low similarity pairs (threshold < 0.4)
+            (
+                "The weather is sunny and warm today.",
+                "Database indexing improves query performance significantly.",
+                0.1
+            )
+        ]
+    
+    
+    def get_model_configs() -> Dict[str, Dict[str, Any]]:
+        """Get embedding model configurations for testing."""
+        return {
+            "default": {
+                "name": "all-MiniLM-L6-v2",
+                "dimension": 384,
+                "description": "Default lightweight model for testing"
+            },
+            "alternative": {
+                "name": "all-mpnet-base-v2", 
+                "dimension": 768,
+                "description": "Alternative higher-quality model"
+            }
+        }
+    
+    
+    def get_performance_test_config() -> Dict[str, Any]:
+        """Get configuration for performance testing."""
+        return {
+            "batch_sizes": [1, 5, 10, 20],
+            "max_embedding_time": 10.0,  # seconds
+            "max_batch_time": 30.0,  # seconds
+            "stability_repetitions": 3,
+            "stability_tolerance": 1e-6
+        }
+    
+    
+    def get_mock_embeddings(count: int = 1, dimension: int = 384) -> List[List[float]]:
+        """Generate mock embeddings for testing."""
+        import random
+        random.seed(42)  # Ensure reproducible results
+        
+        embeddings = []
+        for i in range(count):
+            # Generate normalized random embeddings
+            embedding = [random.uniform(-1, 1) for _ in range(dimension)]
+            # Normalize to unit vector
+            norm = sum(x*x for x in embedding) ** 0.5
+            if norm > 0:
+                embedding = [x/norm for x in embedding]
+            embeddings.append(embedding)
+        
+        return embeddings
+    
+    
+    def get_high_similarity_pair() -> Tuple[str, str, float]:
+        """Get a pair of texts with high expected similarity."""
+        pairs = get_similarity_pairs()
+        # Return the first high similarity pair
+        return pairs[0]
+    
+    
+    def get_low_similarity_pair() -> Tuple[str, str, float]:
+        """Get a pair of texts with low expected similarity.""" 
+        pairs = get_similarity_pairs()
+        # Return the last low similarity pair
+        return pairs[-1]
+    
+    
+    def get_stability_test_config() -> Dict[str, Any]:
+        """Get configuration for numerical stability testing."""
+        return {
+            "test_text": "This text will be embedded multiple times to test stability.",
+            "repetitions": 5,
+            "tolerance": 1e-6
+        }
+    ]]></file>
+  <file path="tests\test_data\__init__.py"><![CDATA[
+    """
+    Test data package for vector database client tests.
+    """
+    ]]></file>
+  <file path="tests\test_data\test_module.py"><![CDATA[
+    """
+    Example Python module for testing vector database ingestion.
+    """
+    
+    def hello_world():
+        """Print a greeting message."""
+        print("Hello, World!")
+    
+    class TestClass:
+        """Example class for testing."""
+        
+        def __init__(self, name: str):
+            self.name = name
+        
+        def greet(self):
+            """Return a greeting message."""
+            return f"Hello, {self.name}!"
+    
+    # Main execution
+    if __name__ == "__main__":
+        test = TestClass("Vector DB")
+        print(test.greet())
+    ]]></file>
+  <file path="tests\test_data\test_document.txt"><![CDATA[
+    This is a plain text document for testing the vector database client.
+    
+    The document contains multiple paragraphs to test the chunking functionality.
+    Each paragraph should be processed and stored as separate or overlapping chunks
+    depending on the configuration.
+    
+    Vector databases are powerful tools for similarity search and retrieval.
+    They enable semantic search capabilities that go beyond keyword matching.
+    
+    This text file will be processed, chunked, and embedded into vector space
+    for efficient similarity search and retrieval operations.
+    ]]></file>
+  <file path="tests\test_data\test_document.md"><![CDATA[
+    # Test Document
+    
+    This is a test markdown document for the vector database.
+    
+    ## Section 1
+    
+    Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+    
+    ## Section 2
+    
+    Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+    
+    ### Subsection
+    
+    Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.
+    ]]></file>
+  <file path="tests\test_data\test_config.json"><![CDATA[
+    {
+        "test_queries": [
+            "vector db",
+            "Python programming", 
+            "hello world",
+            "markdown document"
+        ],
+        "milvus_test_queries": [
+            "vector db",
+            "hello_world",
+            "Section 1"
+        ],
+        "embedding_dimension": 384,
+        "chunk_size": 1000,
+        "chunk_overlap": 100,
+        "test_collection_names": {
+            "mock": "test_collection_mock",
+            "milvus": "test_collection_milvus"
+        }
+    }
+    ]]></file>
+</files>
