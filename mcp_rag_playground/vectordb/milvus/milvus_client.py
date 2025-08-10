@@ -98,40 +98,18 @@ class MilvusVectorDB(VectorDBInterface):
             
             collection = Collection(collection_name)
             
-            ids = []
-            contents = []
-            metadata_list = []
-            filenames = []
-            file_types = []
-            ingestion_timestamps = []
-            chunk_counts = []
-            file_sizes = []
-            chunk_positions = []
-            vector_ids = []
-            embedding_statuses = []
+            # Detect schema version by checking field count
+            schema_fields = [field.name for field in collection.schema.fields]
+            is_enhanced_schema = len(schema_fields) > 4  # Old schema has 4 fields, new has 12
             
-            for doc, embedding in zip(documents, embeddings):
-                doc_id = doc.id or str(uuid.uuid4())
-                ids.append(doc_id)
-                contents.append(doc.content)
-                metadata_list.append(json.dumps(doc.metadata))
-                
-                # Add enhanced metadata fields
-                filenames.append(doc.filename or "")
-                file_types.append(doc.file_type or "")
-                ingestion_timestamps.append(doc.ingestion_timestamp.isoformat() if doc.ingestion_timestamp else "")
-                chunk_counts.append(doc.chunk_count or 0)
-                file_sizes.append(doc.file_size or 0)
-                chunk_positions.append(doc.chunk_position or 0)
-                vector_ids.append(doc.vector_id or doc_id)  # Use doc_id as fallback
-                embedding_statuses.append(doc.embedding_status or "pending")
+            logger.info(f"Collection schema detected: {'enhanced' if is_enhanced_schema else 'legacy'} ({len(schema_fields)} fields)")
             
-            entities = [ids, contents, metadata_list, filenames, file_types, ingestion_timestamps, 
-                       chunk_counts, file_sizes, chunk_positions, vector_ids, embedding_statuses, embeddings]
-            collection.insert(entities)
-            collection.flush()
-            
-            return True
+            if is_enhanced_schema:
+                # Use new enhanced schema
+                return self._insert_documents_enhanced(collection, documents, embeddings)
+            else:
+                # Use legacy schema with metadata stored in JSON
+                return self._insert_documents_legacy(collection, documents, embeddings)
             
         except Exception as e:
             logger.error(f"Error inserting documents: {e}")
@@ -151,38 +129,37 @@ class MilvusVectorDB(VectorDBInterface):
             collection = Collection(collection_name)
             collection.load()
             
+            # Detect schema version
+            schema_fields = [field.name for field in collection.schema.fields]
+            is_enhanced_schema = len(schema_fields) > 4
+            
             search_params = {"metric_type": "COSINE", "params": {"nprobe": 10}}
+            
+            if is_enhanced_schema:
+                # Enhanced schema - request all fields
+                output_fields = ["content", "metadata", "filename", "file_type", "ingestion_timestamp", 
+                               "chunk_count", "file_size", "chunk_position", "vector_id", "embedding_status"]
+            else:
+                # Legacy schema - only basic fields available
+                output_fields = ["content", "metadata"]
             
             results = collection.search(
                 data=[query_embedding],
                 anns_field="embedding",
                 param=search_params,
                 limit=limit,
-                output_fields=["content", "metadata", "filename", "file_type", "ingestion_timestamp", 
-                             "chunk_count", "file_size", "chunk_position", "vector_id", "embedding_status"]
+                output_fields=output_fields
             )
             
             search_results = []
             for hits in results:
                 for hit in hits:
-                    metadata = json.loads(hit.entity.get("metadata"))
-                    
-                    # Parse ingestion timestamp with improved error handling
-                    ingestion_timestamp = self._parse_datetime_field(hit.entity.get("ingestion_timestamp"))
-                    
-                    document = Document(
-                        content=hit.entity.get("content"),
-                        metadata=metadata,
-                        id=hit.id,
-                        filename=hit.entity.get("filename") or None,
-                        file_type=hit.entity.get("file_type") or None,
-                        ingestion_timestamp=ingestion_timestamp,
-                        chunk_count=hit.entity.get("chunk_count") or None,
-                        file_size=hit.entity.get("file_size") or None,
-                        chunk_position=hit.entity.get("chunk_position") or None,
-                        vector_id=hit.entity.get("vector_id") or None,
-                        embedding_status=hit.entity.get("embedding_status") or "pending"
-                    )
+                    if is_enhanced_schema:
+                        # Parse enhanced schema results
+                        document = self._parse_enhanced_search_result(hit)
+                    else:
+                        # Parse legacy schema results
+                        document = self._parse_legacy_search_result(hit)
                     
                     search_results.append(SearchResult(
                         document=document,
@@ -301,3 +278,120 @@ class MilvusVectorDB(VectorDBInterface):
         except ValueError:
             logger.warning(f"Failed to parse datetime string: {datetime_str}")
             return None
+    
+    def _insert_documents_enhanced(self, collection, documents: List[Document], embeddings: List[List[float]]) -> bool:
+        """Insert documents using the enhanced schema with individual metadata fields."""
+        ids = []
+        contents = []
+        metadata_list = []
+        filenames = []
+        file_types = []
+        ingestion_timestamps = []
+        chunk_counts = []
+        file_sizes = []
+        chunk_positions = []
+        vector_ids = []
+        embedding_statuses = []
+        
+        for doc, embedding in zip(documents, embeddings):
+            doc_id = doc.id or str(uuid.uuid4())
+            ids.append(doc_id)
+            contents.append(doc.content)
+            metadata_list.append(json.dumps(doc.metadata))
+            
+            # Add enhanced metadata fields
+            filenames.append(doc.filename or "")
+            file_types.append(doc.file_type or "")
+            ingestion_timestamps.append(doc.ingestion_timestamp.isoformat() if doc.ingestion_timestamp else "")
+            chunk_counts.append(doc.chunk_count or 0)
+            file_sizes.append(doc.file_size or 0)
+            chunk_positions.append(doc.chunk_position or 0)
+            vector_ids.append(doc.vector_id or doc_id)  # Use doc_id as fallback
+            embedding_statuses.append(doc.embedding_status or "pending")
+        
+        entities = [ids, contents, metadata_list, filenames, file_types, ingestion_timestamps, 
+                   chunk_counts, file_sizes, chunk_positions, vector_ids, embedding_statuses, embeddings]
+        collection.insert(entities)
+        collection.flush()
+        return True
+    
+    def _insert_documents_legacy(self, collection, documents: List[Document], embeddings: List[List[float]]) -> bool:
+        """Insert documents using the legacy schema with all metadata in JSON field."""
+        ids = []
+        contents = []
+        metadata_list = []
+        
+        for doc, embedding in zip(documents, embeddings):
+            doc_id = doc.id or str(uuid.uuid4())
+            ids.append(doc_id)
+            contents.append(doc.content)
+            
+            # Merge all metadata into the JSON field for legacy compatibility
+            enhanced_metadata = doc.metadata.copy()
+            if doc.filename:
+                enhanced_metadata['filename'] = doc.filename
+            if doc.file_type:
+                enhanced_metadata['file_type'] = doc.file_type
+            if doc.ingestion_timestamp:
+                enhanced_metadata['ingestion_timestamp'] = doc.ingestion_timestamp.isoformat()
+            if doc.chunk_count is not None:
+                enhanced_metadata['chunk_count'] = doc.chunk_count
+            if doc.file_size is not None:
+                enhanced_metadata['file_size'] = doc.file_size
+            if doc.chunk_position is not None:
+                enhanced_metadata['chunk_position'] = doc.chunk_position
+            if doc.vector_id:
+                enhanced_metadata['vector_id'] = doc.vector_id
+            if doc.embedding_status:
+                enhanced_metadata['embedding_status'] = doc.embedding_status
+            
+            metadata_list.append(json.dumps(enhanced_metadata))
+        
+        entities = [ids, contents, metadata_list, embeddings]
+        collection.insert(entities)
+        collection.flush()
+        return True
+    
+    def _parse_enhanced_search_result(self, hit) -> Document:
+        """Parse search result from enhanced schema."""
+        metadata = json.loads(hit.entity.get("metadata"))
+        
+        # Parse ingestion timestamp with improved error handling
+        ingestion_timestamp = self._parse_datetime_field(hit.entity.get("ingestion_timestamp"))
+        
+        return Document(
+            content=hit.entity.get("content"),
+            metadata=metadata,
+            id=hit.id,
+            filename=hit.entity.get("filename") or None,
+            file_type=hit.entity.get("file_type") or None,
+            ingestion_timestamp=ingestion_timestamp,
+            chunk_count=hit.entity.get("chunk_count") or None,
+            file_size=hit.entity.get("file_size") or None,
+            chunk_position=hit.entity.get("chunk_position") or None,
+            vector_id=hit.entity.get("vector_id") or None,
+            embedding_status=hit.entity.get("embedding_status") or "pending"
+        )
+    
+    def _parse_legacy_search_result(self, hit) -> Document:
+        """Parse search result from legacy schema with enhanced metadata in JSON."""
+        metadata = json.loads(hit.entity.get("metadata"))
+        
+        # Extract enhanced metadata from JSON if available
+        ingestion_timestamp = None
+        if 'ingestion_timestamp' in metadata:
+            ingestion_timestamp = self._parse_datetime_field(metadata['ingestion_timestamp'])
+        
+        return Document(
+            content=hit.entity.get("content"),
+            metadata=metadata,
+            id=hit.id,
+            filename=metadata.get('filename'),
+            file_type=metadata.get('file_type'),
+            ingestion_timestamp=ingestion_timestamp,
+            chunk_count=metadata.get('chunk_count'),
+            file_size=metadata.get('file_size'),
+            chunk_position=metadata.get('chunk_position'),
+            vector_id=metadata.get('vector_id'),
+            embedding_status=metadata.get('embedding_status', 'pending')
+        )

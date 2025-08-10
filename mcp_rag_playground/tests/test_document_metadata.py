@@ -2,16 +2,14 @@
 Unit tests for enhanced document metadata tracking functionality.
 """
 
-import pytest
 from datetime import datetime
 from unittest.mock import Mock, patch
-import tempfile
-import os
-import json
 
-from mcp_rag_playground.vectordb.vector_db_interface import Document, SearchResult
+import pytest
+
 from mcp_rag_playground.vectordb.milvus.milvus_client import MilvusVectorDB
 from mcp_rag_playground.vectordb.vector_client import VectorClient
+from mcp_rag_playground.vectordb.vector_db_interface import Document
 
 
 class TestDocumentModel:

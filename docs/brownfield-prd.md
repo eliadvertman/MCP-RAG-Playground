@@ -237,7 +237,24 @@ so that I can monitor and manage the knowledge base composition effectively.
 - IV2: Current vector search and retrieval operations maintain existing performance levels
 - IV3: Existing MCP server tools (add file/content, search, delete) work unchanged with new metadata layer
 
-### Story 1.2: Document Management Operations
+### Story 1.2: Schema Evolution Framework
+As a system architect,  
+I want a unified, evolvable vector database schema without legacy/non-legacy distinctions,  
+so that the schema can adapt to new requirements without requiring code changes.
+
+**Acceptance Criteria:**
+1. Remove legacy/enhanced schema detection logic and use single unified schema approach
+2. Implement schema version management system that allows evolution without breaking existing data
+3. Create schema migration utilities that can upgrade existing collections to new schema versions
+4. Schema changes require only configuration updates, not code modifications to core database operations
+5. Backward compatibility maintained for existing collections through transparent schema migration
+
+**Integration Verification:**
+- IV1: All existing collections continue to function without manual intervention or data loss
+- IV2: New schema versions can be deployed without requiring application restarts or downtime
+- IV3: Schema evolution framework integrates with existing MilvusVectorDB interface without breaking current functionality
+
+### Story 1.3: Document Management Operations
 As a knowledge base user,  
 I want to add and remove documents from the knowledge base,  
 so that I can maintain an up-to-date and relevant information repository.
@@ -253,7 +270,7 @@ so that I can maintain an up-to-date and relevant information repository.
 - IV2: Document removals properly clean up vector storage without affecting unrelated documents
 - IV3: Existing automated tests continue to pass with new document management capabilities
 
-### Story 1.3: Smart Document Processing Pipeline
+### Story 1.4: Smart Document Processing Pipeline
 As a knowledge base administrator,  
 I want intelligent document processing capabilities,  
 so that I can maintain high-quality knowledge base content with minimal manual intervention.
@@ -269,7 +286,7 @@ so that I can maintain high-quality knowledge base content with minimal manual i
 - IV2: New processing steps don't significantly impact ingestion performance (<20% overhead)
 - IV3: Processing results integrate seamlessly with existing metadata tracking from Story 1.1
 
-### Story 1.4: Enhanced Question-Answering Interface
+### Story 1.5: Enhanced Question-Answering Interface
 As an end user,  
 I want an intuitive question-answering interface,  
 so that I can easily retrieve relevant information from the knowledge base.
@@ -285,15 +302,15 @@ so that I can easily retrieve relevant information from the knowledge base.
 - IV2: Source attribution correctly references documents managed through Stories 1.1-1.2
 - IV3: Query performance remains within existing system limits and response time expectations
 
-### Story 1.5: Comprehensive Tracking Dashboard
+### Story 1.6: Comprehensive Tracking Dashboard
 As a knowledge base administrator,  
 I want detailed visibility into knowledge base composition and usage,  
 so that I can make informed decisions about content management and system optimization.
 
 **Acceptance Criteria:**
 1. Dashboard displays all document and chunk metadata captured in previous stories
-2. Tracking interface shows processing status from smart pipeline (Story 1.3)
-3. Usage analytics integrate with query data from enhanced Q&A interface (Story 1.4)
+2. Tracking interface shows processing status from smart pipeline (Story 1.4)
+3. Usage analytics integrate with query data from enhanced Q&A interface (Story 1.5)
 4. Dashboard can be deployed independently without affecting core RAG functionality
 
 **Integration Verification:**
@@ -301,7 +318,7 @@ so that I can make informed decisions about content management and system optimi
 - IV2: Dashboard deployment doesn't interfere with existing MCP server or vector operations
 - IV3: Optional web interface degrades gracefully if not available, maintaining CLI/MCP functionality
 
-### Story 1.6: Integration & Export Capabilities
+### Story 1.7: Integration & Export Capabilities
 As a system integrator,  
 I want comprehensive API and export functionality,  
 so that I can integrate the knowledge base with external systems and workflows.
@@ -316,3 +333,20 @@ so that I can integrate the knowledge base with external systems and workflows.
 - IV1: REST API and MCP server coexist without port conflicts or resource contention
 - IV2: Bulk operations complete successfully using data and metadata from all previous stories
 - IV3: Export formats accurately represent complete system state including all enhancements
+
+### Story 1.8: Document Upload Progress Tracking
+As a knowledge base user,  
+I want to see real-time progress when uploading documents,  
+so that I can monitor upload status and know when the process is complete.
+
+**Acceptance Criteria:**
+1. Progress bar displays upload progress for single document operations with percentage completion
+2. Batch upload operations show overall progress plus individual file status indicators
+3. Progress tracking integrates with existing document ingestion pipeline from Stories 1.1-1.2
+4. Progress information includes file processing stages (upload, chunking, embedding, indexing)
+5. Error states display clearly within progress interface with actionable error messages
+
+**Integration Verification:**
+- IV1: Progress tracking works seamlessly with existing MCP tools for document addition
+- IV2: Progress display doesn't interfere with current async document processing capabilities
+- IV3: Progress data leverages metadata tracking foundation established in Story 1.1
