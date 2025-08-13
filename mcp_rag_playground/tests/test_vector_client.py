@@ -382,3 +382,110 @@ class TestVectorClient:
         mock_vector_db.insert_documents.assert_called_once_with(
             "test_collection", documents, [[0.1] * 384, [0.2] * 384]
         )
+
+    @pytest.mark.unit
+    def test_remove_document_success(self, vector_client, mock_vector_db):
+        """Test successful document removal."""
+        # Setup mock
+        mock_vector_db.collection_exists.return_value = True
+        mock_vector_db.remove_documents.return_value = True
+        
+        # Call method
+        result = vector_client.remove_document("test_doc_id")
+        
+        # Verify result and calls
+        assert result is True
+        mock_vector_db.remove_documents.assert_called_once_with("test_collection", ["test_doc_id"])
+
+    @pytest.mark.unit
+    def test_remove_document_empty_id(self, vector_client, mock_vector_db):
+        """Test remove document with empty ID."""
+        # Setup mock
+        mock_vector_db.collection_exists.return_value = True
+        
+        # Call method with empty ID
+        result = vector_client.remove_document("")
+        
+        # Should return False and not call vector DB
+        assert result is False
+        mock_vector_db.remove_documents.assert_not_called()
+        
+        # Test with None ID
+        result = vector_client.remove_document(None)
+        assert result is False
+
+    @pytest.mark.unit
+    def test_remove_document_exception_handling(self, vector_client, mock_vector_db):
+        """Test remove document exception handling."""
+        # Setup mock to raise exception
+        mock_vector_db.collection_exists.return_value = True
+        mock_vector_db.remove_documents.side_effect = Exception("Database error")
+        
+        # Call method
+        result = vector_client.remove_document("test_doc_id")
+        
+        # Should return False on error
+        assert result is False
+
+    @pytest.mark.unit
+    def test_get_document_by_id_success(self, vector_client, mock_vector_db):
+        """Test successful document retrieval by ID."""
+        # Setup mock
+        expected_document = Document(
+            content="Test content",
+            metadata={"source": "test.txt"},
+            id="test_doc_id"
+        )
+        mock_vector_db.collection_exists.return_value = True
+        mock_vector_db.get_document_by_id.return_value = expected_document
+        
+        # Call method
+        result = vector_client.get_document_by_id("test_doc_id")
+        
+        # Verify result and calls
+        assert result == expected_document
+        mock_vector_db.get_document_by_id.assert_called_once_with("test_collection", "test_doc_id")
+
+    @pytest.mark.unit
+    def test_get_document_by_id_not_found(self, vector_client, mock_vector_db):
+        """Test get document by ID when document not found."""
+        # Setup mock
+        mock_vector_db.collection_exists.return_value = True
+        mock_vector_db.get_document_by_id.return_value = None
+        
+        # Call method
+        result = vector_client.get_document_by_id("nonexistent_doc_id")
+        
+        # Should return None
+        assert result is None
+        mock_vector_db.get_document_by_id.assert_called_once_with("test_collection", "nonexistent_doc_id")
+
+    @pytest.mark.unit
+    def test_get_document_by_id_empty_id(self, vector_client, mock_vector_db):
+        """Test get document by ID with empty ID."""
+        # Setup mock
+        mock_vector_db.collection_exists.return_value = True
+        
+        # Call method with empty ID
+        result = vector_client.get_document_by_id("")
+        
+        # Should return None and not call vector DB
+        assert result is None
+        mock_vector_db.get_document_by_id.assert_not_called()
+        
+        # Test with None ID
+        result = vector_client.get_document_by_id(None)
+        assert result is None
+
+    @pytest.mark.unit
+    def test_get_document_by_id_exception_handling(self, vector_client, mock_vector_db):
+        """Test get document by ID exception handling."""
+        # Setup mock to raise exception
+        mock_vector_db.collection_exists.return_value = True
+        mock_vector_db.get_document_by_id.side_effect = Exception("Database error")
+        
+        # Call method
+        result = vector_client.get_document_by_id("test_doc_id")
+        
+        # Should return None on error
+        assert result is None

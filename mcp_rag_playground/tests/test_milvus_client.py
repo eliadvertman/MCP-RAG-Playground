@@ -460,3 +460,199 @@ class TestMilvusVectorDB:
         finally:
             # Cleanup
             milvus_client_basic.delete_collection(test_collection_name)
+
+    @pytest.mark.milvus
+    @pytest.mark.integration
+    def test_remove_documents_success(self, milvus_client_basic, test_collection_name):
+        """Test successful document removal with real Milvus."""
+        try:
+            # Create and insert test documents
+            documents = [
+                Document(
+                    id="doc_to_remove_1",
+                    content="First document to remove.",
+                    metadata={"source": "test_removal", "doc_num": 1}
+                ),
+                Document(
+                    id="doc_to_remove_2", 
+                    content="Second document to remove.",
+                    metadata={"source": "test_removal", "doc_num": 2}
+                ),
+                Document(
+                    id="doc_to_keep",
+                    content="Document that should remain.",
+                    metadata={"source": "test_removal", "doc_num": 3}
+                )
+            ]
+            
+            import numpy as np
+            np.random.seed(42)
+            embeddings = [np.random.rand(384).tolist() for _ in range(3)]
+            
+            # Create collection and insert documents
+            milvus_client_basic.create_collection(test_collection_name, dimension=384)
+            result = milvus_client_basic.insert_documents(test_collection_name, documents, embeddings)
+            assert result is True
+            
+            time.sleep(2)  # Wait for indexing
+            
+            # Verify all documents are inserted
+            info = milvus_client_basic.get_collection_info(test_collection_name)
+            assert info["num_entities"] == 3
+            
+            # Remove two documents
+            result = milvus_client_basic.remove_documents(test_collection_name, ["doc_to_remove_1", "doc_to_remove_2"])
+            assert result is True
+            
+            time.sleep(1)  # Wait for removal to complete
+            
+            # Verify documents were removed
+            info = milvus_client_basic.get_collection_info(test_collection_name)
+            assert info["num_entities"] == 1
+            
+        finally:
+            # Cleanup
+            milvus_client_basic.delete_collection(test_collection_name)
+
+    @pytest.mark.milvus
+    @pytest.mark.integration
+    def test_remove_documents_empty_list(self, milvus_client_basic, test_collection_name):
+        """Test remove documents with empty list."""
+        try:
+            # Create collection
+            milvus_client_basic.create_collection(test_collection_name, dimension=384)
+            
+            # Remove empty list should succeed
+            result = milvus_client_basic.remove_documents(test_collection_name, [])
+            assert result is True
+            
+        finally:
+            # Cleanup
+            milvus_client_basic.delete_collection(test_collection_name)
+
+    @pytest.mark.milvus
+    @pytest.mark.integration
+    def test_remove_documents_nonexistent_collection(self, milvus_client_basic):
+        """Test remove documents from non-existent collection."""
+        # Try to remove from non-existent collection
+        result = milvus_client_basic.remove_documents("nonexistent_collection", ["doc1"])
+        assert result is False
+
+    @pytest.mark.milvus
+    @pytest.mark.integration
+    def test_get_document_by_id_success(self, milvus_client_basic, test_collection_name):
+        """Test successful document retrieval by ID with real Milvus."""
+        try:
+            # Create test document with enhanced metadata
+            original_document = Document(
+                id="retrievable_doc",
+                content="Document content for retrieval test.",
+                metadata={"source": "test_retrieval", "importance": "high"},
+                filename="test_file.txt",
+                file_type=".txt", 
+                file_size=100,
+                chunk_count=1,
+                chunk_position=0,
+                embedding_status="completed"
+            )
+            
+            import numpy as np
+            np.random.seed(42)
+            embedding = [np.random.rand(384).tolist()]
+            
+            # Create collection and insert document
+            milvus_client_basic.create_collection(test_collection_name, dimension=384)
+            result = milvus_client_basic.insert_documents(test_collection_name, [original_document], embedding)
+            assert result is True
+            
+            time.sleep(2)  # Wait for indexing
+            
+            # Retrieve document by ID
+            retrieved_document = milvus_client_basic.get_document_by_id(test_collection_name, "retrievable_doc")
+            
+            # Verify document retrieval
+            assert retrieved_document is not None
+            assert retrieved_document.id == "retrievable_doc"
+            assert retrieved_document.content == "Document content for retrieval test."
+            assert retrieved_document.metadata["source"] == "test_retrieval"
+            assert retrieved_document.metadata["importance"] == "high"
+            assert retrieved_document.filename == "test_file.txt"
+            assert retrieved_document.file_type == ".txt"
+            assert retrieved_document.file_size == 100
+            
+        finally:
+            # Cleanup
+            milvus_client_basic.delete_collection(test_collection_name)
+
+    @pytest.mark.milvus
+    @pytest.mark.integration
+    def test_get_document_by_id_not_found(self, milvus_client_basic, test_collection_name):
+        """Test get document by ID when document not found."""
+        try:
+            # Create collection without any documents
+            milvus_client_basic.create_collection(test_collection_name, dimension=384)
+            
+            # Try to retrieve non-existent document
+            retrieved_document = milvus_client_basic.get_document_by_id(test_collection_name, "nonexistent_doc")
+            assert retrieved_document is None
+            
+        finally:
+            # Cleanup
+            milvus_client_basic.delete_collection(test_collection_name)
+
+    @pytest.mark.milvus
+    @pytest.mark.integration
+    def test_get_document_by_id_nonexistent_collection(self, milvus_client_basic):
+        """Test get document by ID from non-existent collection."""
+        # Try to retrieve from non-existent collection
+        result = milvus_client_basic.get_document_by_id("nonexistent_collection", "doc1")
+        assert result is None
+
+    @pytest.mark.milvus
+    @pytest.mark.integration
+    def test_document_lifecycle(self, milvus_client_basic, test_collection_name):
+        """Test complete document lifecycle: insert, retrieve, remove."""
+        try:
+            # Create test document
+            test_document = Document(
+                id="lifecycle_doc",
+                content="Document for lifecycle testing.",
+                metadata={"test": "lifecycle"},
+                filename="lifecycle.txt",
+                file_type=".txt"
+            )
+            
+            import numpy as np
+            np.random.seed(42)
+            embedding = [np.random.rand(384).tolist()]
+            
+            # Step 1: Create collection and insert document
+            milvus_client_basic.create_collection(test_collection_name, dimension=384)
+            insert_result = milvus_client_basic.insert_documents(test_collection_name, [test_document], embedding)
+            assert insert_result is True
+            
+            time.sleep(2)  # Wait for indexing
+            
+            # Step 2: Retrieve document and verify
+            retrieved = milvus_client_basic.get_document_by_id(test_collection_name, "lifecycle_doc")
+            assert retrieved is not None
+            assert retrieved.id == "lifecycle_doc"
+            assert retrieved.content == "Document for lifecycle testing."
+            
+            # Step 3: Remove document
+            remove_result = milvus_client_basic.remove_documents(test_collection_name, ["lifecycle_doc"])
+            assert remove_result is True
+            
+            time.sleep(1)  # Wait for removal
+            
+            # Step 4: Verify document is gone
+            retrieved_after_removal = milvus_client_basic.get_document_by_id(test_collection_name, "lifecycle_doc")
+            assert retrieved_after_removal is None
+            
+            # Verify collection is empty
+            info = milvus_client_basic.get_collection_info(test_collection_name)
+            assert info["num_entities"] == 0
+            
+        finally:
+            # Cleanup
+            milvus_client_basic.delete_collection(test_collection_name)

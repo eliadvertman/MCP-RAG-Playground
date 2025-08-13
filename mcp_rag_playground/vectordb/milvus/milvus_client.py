@@ -314,7 +314,11 @@ class MilvusVectorDB(VectorDBInterface):
     
     def _parse_enhanced_search_result(self, hit) -> Document:
         """Parse search result from enhanced schema."""
-        metadata = json.loads(hit.entity.get("metadata"))
+        try:
+            metadata = json.loads(hit.entity.get("metadata", "{}"))
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"Failed to parse metadata in search result: {e}")
+            metadata = {}
         
         # Parse ingestion timestamp with improved error handling
         ingestion_timestamp = self._parse_datetime_field(hit.entity.get("ingestion_timestamp"))
@@ -332,4 +336,93 @@ class MilvusVectorDB(VectorDBInterface):
             vector_id=hit.entity.get("vector_id") or None,
             embedding_status=hit.entity.get("embedding_status") or "pending"
         )
+    
+    def remove_documents(self, collection_name: str, document_ids: List[str]) -> bool:
+        """Remove documents from the collection by their IDs."""
+        try:
+            from pymilvus import Collection
+            
+            self.connect()
+            
+            if not self.collection_exists(collection_name):
+                logger.error(f"Collection {collection_name} does not exist")
+                return False
+            
+            if not document_ids:
+                logger.warning("No document IDs provided for removal")
+                return True
+            
+            collection = Collection(collection_name)
+            
+            # Build the delete expression for multiple IDs
+            id_list = "', '".join(document_ids)
+            expr = f"id in ['{id_list}']"
+            
+            collection.delete(expr)
+            collection.flush()
+            
+            logger.info(f"Successfully removed {len(document_ids)} documents from {collection_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error removing documents: {e}")
+            return False
+    
+    def get_document_by_id(self, collection_name: str, document_id: str) -> Optional[Document]:
+        """Retrieve a specific document by its ID."""
+        try:
+            from pymilvus import Collection
+            
+            self.connect()
+            
+            if not self.collection_exists(collection_name):
+                logger.error(f"Collection {collection_name} does not exist")
+                return None
+            
+            collection = Collection(collection_name)
+            collection.load()
+            
+            # Get schema configuration for output fields
+            schema_config = self.config.get_schema_config()
+            output_fields = schema_config.get_output_fields()
+            
+            # Query for the specific document
+            expr = f"id == '{document_id}'"
+            results = collection.query(expr, output_fields=output_fields)
+            
+            if not results:
+                logger.debug(f"Document {document_id} not found in {collection_name}")
+                return None
+            
+            # Parse the first result (should be only one)
+            result = results[0]
+            try:
+                metadata = json.loads(result.get("metadata", "{}"))
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning(f"Failed to parse metadata for document {document_id}: {e}")
+                metadata = {}
+            
+            # Parse ingestion timestamp with improved error handling
+            ingestion_timestamp = self._parse_datetime_field(result.get("ingestion_timestamp"))
+            
+            document = Document(
+                content=result.get("content"),
+                metadata=metadata,
+                id=result.get("id"),
+                filename=result.get("filename") or None,
+                file_type=result.get("file_type") or None,
+                ingestion_timestamp=ingestion_timestamp,
+                chunk_count=result.get("chunk_count") or None,
+                file_size=result.get("file_size") or None,
+                chunk_position=result.get("chunk_position") or None,
+                vector_id=result.get("vector_id") or None,
+                embedding_status=result.get("embedding_status") or "pending"
+            )
+            
+            logger.debug(f"Successfully retrieved document {document_id} from {collection_name}")
+            return document
+            
+        except Exception as e:
+            logger.error(f"Error retrieving document {document_id}: {e}")
+            return None
     
