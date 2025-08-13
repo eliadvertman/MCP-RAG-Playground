@@ -2,11 +2,11 @@
 Main vector database client with upload and query capabilities.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import re
 import os
 from datetime import datetime
-from .vector_db_interface import VectorDBInterface, SearchResult
+from .vector_db_interface import VectorDBInterface, SearchResult, Document
 from .embedding_service import EmbeddingService
 from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
 from mcp_rag_playground.config.logging_config import get_logger
@@ -222,3 +222,65 @@ class VectorClient:
         except Exception as e:
             logger.error(f"Error testing connection: {e}")
             return False
+    
+    def remove_document(self, document_id: str) -> bool:
+        """
+        Remove a document from the vector database.
+        
+        Args:
+            document_id: ID of the document to remove
+            
+        Returns:
+            bool: True if removal successful, False otherwise
+        """
+        try:
+            logger.info(f"Removing document: {document_id}")
+            self._ensure_collection_exists()
+            
+            if not document_id or not document_id.strip():
+                logger.error("Document ID cannot be empty")
+                return False
+            
+            success = self.vector_db.remove_documents(self.collection_name, [document_id.strip()])
+            
+            if success:
+                logger.info(f"Successfully removed document: {document_id}")
+            else:
+                logger.error(f"Failed to remove document: {document_id}")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error removing document {document_id}: {e}")
+            return False
+    
+    def get_document_by_id(self, document_id: str) -> Optional[Document]:
+        """
+        Retrieve a specific document by its ID.
+        
+        Args:
+            document_id: ID of the document to retrieve
+            
+        Returns:
+            Document: The document if found, None otherwise
+        """
+        try:
+            logger.debug(f"Retrieving document: {document_id}")
+            self._ensure_collection_exists()
+            
+            if not document_id or not document_id.strip():
+                logger.error("Document ID cannot be empty")
+                return None
+            
+            document = self.vector_db.get_document_by_id(self.collection_name, document_id.strip())
+            
+            if document:
+                logger.debug(f"Successfully retrieved document: {document_id}")
+            else:
+                logger.debug(f"Document not found: {document_id}")
+            
+            return document
+            
+        except Exception as e:
+            logger.error(f"Error retrieving document {document_id}: {e}")
+            return None

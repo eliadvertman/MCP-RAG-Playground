@@ -96,3 +96,13 @@ class VectorDBInterface(ABC):
     def test_connection(self) -> bool:
         """Test the connection to the vector database."""
         pass
+    
+    @abstractmethod
+    def remove_documents(self, collection_name: str, document_ids: List[str]) -> bool:
+        """Remove documents from the collection by their IDs."""
+        pass
+    
+    @abstractmethod
+    def get_document_by_id(self, collection_name: str, document_id: str) -> Optional[Document]:
+        """Retrieve a specific document by its ID."""
+        pass
