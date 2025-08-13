@@ -3,8 +3,10 @@ Milvus vector database configuration and connection management.
 """
 
 import os
-from typing import Optional, Dict, Any
 from dataclasses import dataclass
+from typing import Optional, Dict, Any
+
+from mcp_rag_playground.config.schema_config import SchemaConfig
 
 
 @dataclass
@@ -17,6 +19,7 @@ class MilvusConfig:
     password: str = ""
     secure: bool = False
     server_name: str = ""
+    schema_config: SchemaConfig = None
     
     @classmethod
     def from_env(cls) -> "MilvusConfig":
@@ -27,7 +30,8 @@ class MilvusConfig:
             user=os.getenv("MILVUS_USER", ""),
             password=os.getenv("MILVUS_PASSWORD", ""),
             secure=os.getenv("MILVUS_SECURE", "false").lower() == "true",
-            server_name=os.getenv("MILVUS_SERVER_NAME", "")
+            server_name=os.getenv("MILVUS_SERVER_NAME", ""),
+            schema_config=SchemaConfig()  # Use default schema configuration
         )
     
     def to_connection_params(self) -> Dict[str, Any]:
@@ -50,6 +54,13 @@ class MilvusConfig:
             params["server_name"] = self.server_name
             
         return params
+    
+    def get_schema_config(self):
+        """Get schema configuration, creating default if not set."""
+        if self.schema_config is None:
+            from mcp_rag_playground.config.schema_config import SchemaConfig
+            self.schema_config = SchemaConfig()
+        return self.schema_config
 
 
 

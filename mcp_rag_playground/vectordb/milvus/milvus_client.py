@@ -20,6 +20,7 @@ class MilvusVectorDB(VectorDBInterface):
     
     def __init__(self, config: Optional[MilvusConfig] = None):
         self.connection = MilvusConnection(config)
+        self.config = config or MilvusConfig.from_env()
         self._connected = False
     
     def connect(self):
@@ -35,34 +36,32 @@ class MilvusVectorDB(VectorDBInterface):
             self._connected = False
     
     def create_collection(self, collection_name: str, dimension: int) -> bool:
-        """Create a new collection in Milvus."""
+        """Create a new collection in Milvus using configuration-driven schema."""
         try:
-            from pymilvus import Collection, FieldSchema, CollectionSchema, DataType
+            from pymilvus import Collection, CollectionSchema
+            
+            if not collection_name or not isinstance(collection_name, str):
+                raise ValueError("Collection name must be a non-empty string")
+            
+            if dimension <= 0:
+                raise ValueError("Dimension must be a positive integer")
             
             self.connect()
             
             if self.collection_exists(collection_name):
+                logger.info(f"Collection {collection_name} already exists")
                 return True
             
-            fields = [
-                FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=65535, is_primary=True),
-                FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
-                FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=65535),
-                # Enhanced metadata fields for efficient querying
-                FieldSchema(name="filename", dtype=DataType.VARCHAR, max_length=1024),
-                FieldSchema(name="file_type", dtype=DataType.VARCHAR, max_length=50),
-                FieldSchema(name="ingestion_timestamp", dtype=DataType.VARCHAR, max_length=100),
-                FieldSchema(name="chunk_count", dtype=DataType.INT32),
-                FieldSchema(name="file_size", dtype=DataType.INT64),
-                FieldSchema(name="chunk_position", dtype=DataType.INT32),
-                FieldSchema(name="vector_id", dtype=DataType.VARCHAR, max_length=100),
-                FieldSchema(name="embedding_status", dtype=DataType.VARCHAR, max_length=50),
-                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=dimension)
-            ]
+            # Get schema configuration
+            schema_config = self.config.get_schema_config()
+            
+            # Get fields from configuration
+            fields = schema_config.add_embedding_field(dimension)
             
             schema = CollectionSchema(fields, description=f"Collection for {collection_name}")
             collection = Collection(collection_name, schema)
             
+            # Create vector index
             index_params = {
                 "index_type": "IVF_FLAT",
                 "metric_type": "COSINE",
@@ -79,10 +78,14 @@ class MilvusVectorDB(VectorDBInterface):
                 # Index creation is optional, don't fail if not supported
                 logger.warning(f"Could not create metadata indexes: {index_e}")
             
+            logger.info(f"Successfully created collection: {collection_name}")
             return True
             
+        except ValueError as ve:
+            logger.error(f"Invalid parameters for creating collection {collection_name}: {ve}")
+            return False
         except Exception as e:
-            logger.error(f"Error creating collection: {e}")
+            logger.error(f"Error creating collection {collection_name}: {e}")
             return False
     
     def insert_documents(self, collection_name: str, documents: List[Document], 
@@ -91,6 +94,16 @@ class MilvusVectorDB(VectorDBInterface):
         try:
             from pymilvus import Collection
             
+            if not collection_name or not isinstance(collection_name, str):
+                raise ValueError("Collection name must be a non-empty string")
+            
+            if not documents:
+                logger.warning("No documents provided for insertion")
+                return True
+            
+            if len(documents) != len(embeddings):
+                raise ValueError(f"Number of documents ({len(documents)}) must match number of embeddings ({len(embeddings)})")
+            
             self.connect()
             
             if not self.collection_exists(collection_name):
@@ -98,21 +111,16 @@ class MilvusVectorDB(VectorDBInterface):
             
             collection = Collection(collection_name)
             
-            # Detect schema version by checking field count
-            schema_fields = [field.name for field in collection.schema.fields]
-            is_enhanced_schema = len(schema_fields) > 4  # Old schema has 4 fields, new has 12
+            # Use unified enhanced schema approach
+            result = self._insert_documents(collection, documents, embeddings)
+            logger.info(f"Successfully inserted {len(documents)} documents into {collection_name}")
+            return result
             
-            logger.info(f"Collection schema detected: {'enhanced' if is_enhanced_schema else 'legacy'} ({len(schema_fields)} fields)")
-            
-            if is_enhanced_schema:
-                # Use new enhanced schema
-                return self._insert_documents_enhanced(collection, documents, embeddings)
-            else:
-                # Use legacy schema with metadata stored in JSON
-                return self._insert_documents_legacy(collection, documents, embeddings)
-            
+        except ValueError as ve:
+            logger.error(f"Invalid parameters for inserting documents into {collection_name}: {ve}")
+            return False
         except Exception as e:
-            logger.error(f"Error inserting documents: {e}")
+            logger.error(f"Error inserting documents into {collection_name}: {e}")
             return False
     
     def search(self, collection_name: str, query_embedding: List[float], 
@@ -129,19 +137,11 @@ class MilvusVectorDB(VectorDBInterface):
             collection = Collection(collection_name)
             collection.load()
             
-            # Detect schema version
-            schema_fields = [field.name for field in collection.schema.fields]
-            is_enhanced_schema = len(schema_fields) > 4
-            
             search_params = {"metric_type": "COSINE", "params": {"nprobe": 10}}
             
-            if is_enhanced_schema:
-                # Enhanced schema - request all fields
-                output_fields = ["content", "metadata", "filename", "file_type", "ingestion_timestamp", 
-                               "chunk_count", "file_size", "chunk_position", "vector_id", "embedding_status"]
-            else:
-                # Legacy schema - only basic fields available
-                output_fields = ["content", "metadata"]
+            # Get output fields from schema configuration
+            schema_config = self.config.get_schema_config()
+            output_fields = schema_config.get_output_fields()
             
             results = collection.search(
                 data=[query_embedding],
@@ -154,12 +154,8 @@ class MilvusVectorDB(VectorDBInterface):
             search_results = []
             for hits in results:
                 for hit in hits:
-                    if is_enhanced_schema:
-                        # Parse enhanced schema results
-                        document = self._parse_enhanced_search_result(hit)
-                    else:
-                        # Parse legacy schema results
-                        document = self._parse_legacy_search_result(hit)
+                    # Use unified enhanced schema parsing
+                    document = self._parse_enhanced_search_result(hit)
                     
                     search_results.append(SearchResult(
                         document=document,
@@ -279,7 +275,7 @@ class MilvusVectorDB(VectorDBInterface):
             logger.warning(f"Failed to parse datetime string: {datetime_str}")
             return None
     
-    def _insert_documents_enhanced(self, collection, documents: List[Document], embeddings: List[List[float]]) -> bool:
+    def _insert_documents(self, collection, documents: List[Document], embeddings: List[List[float]]) -> bool:
         """Insert documents using the enhanced schema with individual metadata fields."""
         ids = []
         contents = []
@@ -315,42 +311,6 @@ class MilvusVectorDB(VectorDBInterface):
         collection.flush()
         return True
     
-    def _insert_documents_legacy(self, collection, documents: List[Document], embeddings: List[List[float]]) -> bool:
-        """Insert documents using the legacy schema with all metadata in JSON field."""
-        ids = []
-        contents = []
-        metadata_list = []
-        
-        for doc, embedding in zip(documents, embeddings):
-            doc_id = doc.id or str(uuid.uuid4())
-            ids.append(doc_id)
-            contents.append(doc.content)
-            
-            # Merge all metadata into the JSON field for legacy compatibility
-            enhanced_metadata = doc.metadata.copy()
-            if doc.filename:
-                enhanced_metadata['filename'] = doc.filename
-            if doc.file_type:
-                enhanced_metadata['file_type'] = doc.file_type
-            if doc.ingestion_timestamp:
-                enhanced_metadata['ingestion_timestamp'] = doc.ingestion_timestamp.isoformat()
-            if doc.chunk_count is not None:
-                enhanced_metadata['chunk_count'] = doc.chunk_count
-            if doc.file_size is not None:
-                enhanced_metadata['file_size'] = doc.file_size
-            if doc.chunk_position is not None:
-                enhanced_metadata['chunk_position'] = doc.chunk_position
-            if doc.vector_id:
-                enhanced_metadata['vector_id'] = doc.vector_id
-            if doc.embedding_status:
-                enhanced_metadata['embedding_status'] = doc.embedding_status
-            
-            metadata_list.append(json.dumps(enhanced_metadata))
-        
-        entities = [ids, contents, metadata_list, embeddings]
-        collection.insert(entities)
-        collection.flush()
-        return True
     
     def _parse_enhanced_search_result(self, hit) -> Document:
         """Parse search result from enhanced schema."""
@@ -373,25 +333,3 @@ class MilvusVectorDB(VectorDBInterface):
             embedding_status=hit.entity.get("embedding_status") or "pending"
         )
     
-    def _parse_legacy_search_result(self, hit) -> Document:
-        """Parse search result from legacy schema with enhanced metadata in JSON."""
-        metadata = json.loads(hit.entity.get("metadata"))
-        
-        # Extract enhanced metadata from JSON if available
-        ingestion_timestamp = None
-        if 'ingestion_timestamp' in metadata:
-            ingestion_timestamp = self._parse_datetime_field(metadata['ingestion_timestamp'])
-        
-        return Document(
-            content=hit.entity.get("content"),
-            metadata=metadata,
-            id=hit.id,
-            filename=metadata.get('filename'),
-            file_type=metadata.get('file_type'),
-            ingestion_timestamp=ingestion_timestamp,
-            chunk_count=metadata.get('chunk_count'),
-            file_size=metadata.get('file_size'),
-            chunk_position=metadata.get('chunk_position'),
-            vector_id=metadata.get('vector_id'),
-            embedding_status=metadata.get('embedding_status', 'pending')
-        )

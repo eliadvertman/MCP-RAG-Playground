@@ -113,17 +113,24 @@ class TestMilvusVectorDBMetadata:
     
     @patch('pymilvus.Collection')
     @patch('pymilvus.CollectionSchema')
-    @patch('pymilvus.FieldSchema')
-    def test_create_collection_with_metadata_fields(self, mock_field_schema, mock_schema, mock_collection, mock_milvus_db):
+    def test_create_collection_with_metadata_fields(self, mock_schema, mock_collection, mock_milvus_db):
         """Test that create_collection includes all metadata fields."""
         mock_milvus_db._connected = True
         mock_milvus_db.collection_exists = Mock(return_value=False)
         
+        # Mock the schema creation to capture the fields passed to it
+        mock_schema_instance = Mock()
+        mock_schema.return_value = mock_schema_instance
+        
         result = mock_milvus_db.create_collection("test_collection", 128)
         
-        # Verify that FieldSchema was called with metadata fields
-        field_calls = mock_field_schema.call_args_list
-        field_names = [call[1]['name'] for call in field_calls if 'name' in call[1]]
+        # Verify that CollectionSchema was called
+        assert mock_schema.called
+        schema_call_args = mock_schema.call_args
+        fields_passed = schema_call_args[0][0]  # First argument is the fields list
+        
+        # Extract field names from the FieldSchema objects passed to CollectionSchema
+        field_names = [field.name for field in fields_passed]
         
         expected_fields = [
             "id", "content", "metadata", "filename", "file_type", 
