@@ -19,7 +19,8 @@
       "Bash(find:*)",
       "Bash(rm:*)",
       "Bash(mv:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(md-tree:*)"
     ],
     "deny": []
   }
