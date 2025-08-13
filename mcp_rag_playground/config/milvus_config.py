@@ -3,8 +3,10 @@ Milvus vector database configuration and connection management.
 """
 
 import os
-from typing import Optional, Dict, Any
 from dataclasses import dataclass
+from typing import Optional, Dict, Any
+
+from mcp_rag_playground.config.schema_config import SchemaConfig
 
 
 @dataclass
@@ -17,13 +19,11 @@ class MilvusConfig:
     password: str = ""
     secure: bool = False
     server_name: str = ""
-    schema_config: Optional['SchemaConfig'] = None
+    schema_config: SchemaConfig = None
     
     @classmethod
     def from_env(cls) -> "MilvusConfig":
         """Create configuration from environment variables."""
-        from mcp_rag_playground.config.schema_config import SchemaConfig
-        
         return cls(
             host=os.getenv("MILVUS_HOST", "localhost"),
             port=int(os.getenv("MILVUS_PORT", "19530")),

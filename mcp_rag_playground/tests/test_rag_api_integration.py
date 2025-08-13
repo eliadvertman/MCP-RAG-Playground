@@ -3,18 +3,10 @@ Test suite for RAG API integration testing.
 Uses real components (no mocks) for end-to-end testing with existing test data.
 """
 
-import pytest
 import os
 import time
-import uuid
-from pathlib import Path
 
-from mcp_rag_playground.rag.rag_api import RagAPI
-from mcp_rag_playground.vectordb.vector_client import VectorClient
-from mcp_rag_playground.vectordb.milvus.milvus_client import MilvusVectorDB
-from mcp_rag_playground.vectordb.embedding_service import SentenceTransformerEmbedding
-from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
-from mcp_rag_playground.config.milvus_config import MilvusConfig
+import pytest
 
 
 class TestRagAPIIntegration:

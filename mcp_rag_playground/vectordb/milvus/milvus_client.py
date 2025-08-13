@@ -40,25 +40,23 @@ class MilvusVectorDB(VectorDBInterface):
         try:
             from pymilvus import Collection, CollectionSchema
             
+            if not collection_name or not isinstance(collection_name, str):
+                raise ValueError("Collection name must be a non-empty string")
+            
+            if dimension <= 0:
+                raise ValueError("Dimension must be a positive integer")
+            
             self.connect()
             
             if self.collection_exists(collection_name):
+                logger.info(f"Collection {collection_name} already exists")
                 return True
             
             # Get schema configuration
             schema_config = self.config.get_schema_config()
             
-            # Build fields from configuration
-            field_configs = schema_config.add_embedding_field(dimension)
-            fields = []
-            
-            for field_config in field_configs:
-                if not schema_config.validate_field_config(field_config):
-                    logger.error(f"Invalid field configuration: {field_config}")
-                    return False
-                
-                field_schema = schema_config.to_milvus_field_schema(field_config)
-                fields.append(field_schema)
+            # Get fields from configuration
+            fields = schema_config.add_embedding_field(dimension)
             
             schema = CollectionSchema(fields, description=f"Collection for {collection_name}")
             collection = Collection(collection_name, schema)
@@ -80,10 +78,14 @@ class MilvusVectorDB(VectorDBInterface):
                 # Index creation is optional, don't fail if not supported
                 logger.warning(f"Could not create metadata indexes: {index_e}")
             
+            logger.info(f"Successfully created collection: {collection_name}")
             return True
             
+        except ValueError as ve:
+            logger.error(f"Invalid parameters for creating collection {collection_name}: {ve}")
+            return False
         except Exception as e:
-            logger.error(f"Error creating collection: {e}")
+            logger.error(f"Error creating collection {collection_name}: {e}")
             return False
     
     def insert_documents(self, collection_name: str, documents: List[Document], 
@@ -91,6 +93,16 @@ class MilvusVectorDB(VectorDBInterface):
         """Insert documents with their embeddings into the collection."""
         try:
             from pymilvus import Collection
+            
+            if not collection_name or not isinstance(collection_name, str):
+                raise ValueError("Collection name must be a non-empty string")
+            
+            if not documents:
+                logger.warning("No documents provided for insertion")
+                return True
+            
+            if len(documents) != len(embeddings):
+                raise ValueError(f"Number of documents ({len(documents)}) must match number of embeddings ({len(embeddings)})")
             
             self.connect()
             
@@ -100,10 +112,15 @@ class MilvusVectorDB(VectorDBInterface):
             collection = Collection(collection_name)
             
             # Use unified enhanced schema approach
-            return self._insert_documents_enhanced(collection, documents, embeddings)
+            result = self._insert_documents(collection, documents, embeddings)
+            logger.info(f"Successfully inserted {len(documents)} documents into {collection_name}")
+            return result
             
+        except ValueError as ve:
+            logger.error(f"Invalid parameters for inserting documents into {collection_name}: {ve}")
+            return False
         except Exception as e:
-            logger.error(f"Error inserting documents: {e}")
+            logger.error(f"Error inserting documents into {collection_name}: {e}")
             return False
     
     def search(self, collection_name: str, query_embedding: List[float], 
@@ -258,7 +275,7 @@ class MilvusVectorDB(VectorDBInterface):
             logger.warning(f"Failed to parse datetime string: {datetime_str}")
             return None
     
-    def _insert_documents_enhanced(self, collection, documents: List[Document], embeddings: List[List[float]]) -> bool:
+    def _insert_documents(self, collection, documents: List[Document], embeddings: List[List[float]]) -> bool:
         """Insert documents using the enhanced schema with individual metadata fields."""
         ids = []
         contents = []
