@@ -10,7 +10,7 @@ import platform
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, AsyncIterator
+from typing import Dict, Any, Optional, AsyncIterator, List
 
 from mcp.server.fastmcp import FastMCP, Context
 
@@ -163,10 +163,13 @@ def add_document_from_file(ctx: Context, file_path: str) -> Dict[str, Any]:
         start_time = time.time()
         logger.info('Getting context of rag_api from DI')
         rag_api : RagAPI = ctx.request_context.lifespan_context.rag_api
-        success = rag_api.add_document(normalized_path)
+        upload_result = rag_api.add_document(normalized_path)
         end_time = time.time()
         processing_time = end_time - start_time
 
+        # Extract success from the enhanced result
+        success = upload_result.get("success", False)
+        
         result = {
             "success": success,
             "file_path": file_path,
@@ -175,12 +178,21 @@ def add_document_from_file(ctx: Context, file_path: str) -> Dict[str, Any]:
             "file_size": file_size,
             "processing_time_seconds": round(processing_time, 2)
         }
+        
+        # Merge enhanced metadata from RagAPI
+        if isinstance(upload_result, dict):
+            result.update({
+                key: value for key, value in upload_result.items() 
+                if key not in result and key != "file_path"  # Don't override our normalized path
+            })
 
         if success:
             result["message"] = f"Successfully processed {os.path.basename(normalized_path)} ({file_size:,} bytes) in {processing_time:.1f}s"
             ctx.info(f"Successfully processed file: {normalized_path} in {processing_time:.1f}s")
         else:
             result["message"] = f"Failed to process {os.path.basename(normalized_path)}"
+            if upload_result.get("error"):
+                result["error"] = upload_result["error"]
             ctx.error(f"Failed to process file: {normalized_path}")
         return result
 
@@ -262,14 +274,24 @@ def add_document_from_content(ctx: Context, content: str, metadata: Optional[Dic
 
         try:
             rag_api : RagAPI = ctx.request_context.lifespan_context.rag_api
-            success = rag_api.add_document(temp_file_path)
+            upload_result = rag_api.add_document(temp_file_path)
+            success = upload_result.get("success", False) if isinstance(upload_result, dict) else upload_result
 
-            return {
+            result = {
                 "success": success,
                 "content_length": len(content),
                 "metadata": metadata or {},
                 "message": "Successfully added content" if success else "Failed to add content"
             }
+            
+            # Add enhanced metadata if available
+            if isinstance(upload_result, dict) and success:
+                result.update({
+                    key: value for key, value in upload_result.items() 
+                    if key not in ["success", "file_path"]  # Skip temp file path
+                })
+                
+            return result
         finally:
             # Clean up temp file
             try:
@@ -629,6 +651,295 @@ def list_documents_with_metadata(ctx: Context, limit: int = 20, file_type_filter
             "success": False,
             "error": str(e),
             "documents": []
+        }
+
+
+@mcp.tool()
+def remove_document_from_knowledge_base(ctx: Context, document_id: str) -> Dict[str, Any]:
+    """
+    Remove a specific document from the knowledge base by its unique identifier.
+    
+    This tool permanently removes a single document and all its associated data
+    (content, metadata, embeddings) from the knowledge base. The removal is
+    immediate and cannot be undone.
+    
+    Safety features:
+    - Validates document existence before attempting removal
+    - Provides clear feedback about what was removed
+    - Prevents removal of non-existent documents
+    - Maintains data integrity during the removal process
+    
+    Use cases:
+    - Remove outdated or incorrect information
+    - Delete duplicate documents
+    - Clean up test data
+    - Remove sensitive information that should no longer be searchable
+    - Maintain data hygiene in production knowledge bases
+    
+    Args:
+        document_id: The unique identifier of the document to remove.
+                    This ID is returned when documents are added or found in search results.
+                    
+    Returns:
+        Removal result dictionary containing:
+        - success: Boolean indicating if the removal succeeded
+        - document_id: The ID of the document that was targeted
+        - message: Human-readable confirmation or error message
+        - error: Detailed error information if the operation failed
+        
+    Examples:
+        remove_document_from_knowledge_base("doc_12345")
+        remove_document_from_knowledge_base("uuid-generated-id")
+    """
+    try:
+        logger.info(f"MCP Tool: remove_document_from_knowledge_base called for: {document_id}")
+        
+        # Input validation
+        if not document_id or not isinstance(document_id, str) or not document_id.strip():
+            return {
+                "success": False,
+                "document_id": document_id,
+                "error": "document_id must be a non-empty string"
+            }
+        
+        rag_api: RagAPI = ctx.request_context.lifespan_context.rag_api
+        result = rag_api.remove_document(document_id.strip())
+        
+        if result.get("success"):
+            ctx.info(f"Successfully removed document: {document_id}")
+        else:
+            ctx.error(f"Failed to remove document: {document_id} - {result.get('error', 'Unknown error')}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Exception in remove_document_from_knowledge_base: {e}")
+        return {
+            "success": False,
+            "document_id": document_id,
+            "error": str(e)
+        }
+
+
+@mcp.tool()
+def batch_add_documents_from_files(ctx: Context, file_paths: List[str]) -> Dict[str, Any]:
+    """
+    Add multiple documents to the knowledge base from a list of file paths.
+    
+    This tool processes multiple files in a single operation, providing efficient
+    batch ingestion with comprehensive progress tracking and error handling.
+    Each file is processed with the same quality and metadata tracking as
+    individual file additions.
+    
+    Features:
+    - Parallel-capable processing of multiple files
+    - Individual file success/failure tracking
+    - Comprehensive error reporting and recovery
+    - Progress monitoring for large batch operations
+    - Maintains all file type support (15+ formats)
+    - Transaction-safe: partial failures don't corrupt the knowledge base
+    
+    Performance considerations:
+    - Large files will take longer to process
+    - Memory usage scales with the number and size of files
+    - Consider breaking very large batches into smaller chunks
+    - Network/disk I/O is the primary bottleneck
+    
+    Use cases:
+    - Initial knowledge base population
+    - Bulk import from file systems or archives
+    - Migration from other documentation systems
+    - Batch processing of daily/periodic content updates
+    - Development environment setup with test data
+    
+    Args:
+        file_paths: List of absolute or relative paths to files to add.
+                   Each path must exist and point to a readable file.
+                   Supports all file formats (.txt, .md, .py, .json, etc.)
+                   
+    Returns:
+        Batch operation result dictionary containing:
+        - success: Boolean indicating overall batch success (true only if all files succeeded)
+        - total_files: Total number of files attempted
+        - successful_files: Number of files successfully processed
+        - failed_files: Number of files that failed to process
+        - results: Array of individual file results with detailed metadata
+        - message: Summary message describing the batch operation outcome
+        - errors: Array of error messages for failed files (null if no errors)
+        
+    Examples:
+        batch_add_documents_from_files(["/docs/manual.md", "/code/api.py"])
+        batch_add_documents_from_files(["./config.json", "./README.txt"])
+    """
+    try:
+        logger.info(f"MCP Tool: batch_add_documents_from_files called with {len(file_paths)} files")
+        
+        # Input validation
+        if not file_paths or not isinstance(file_paths, list):
+            return {
+                "success": False,
+                "error": "file_paths must be a non-empty list",
+                "total_files": 0,
+                "successful_files": 0,
+                "failed_files": 0,
+                "results": []
+            }
+        
+        if len(file_paths) > 100:  # Reasonable batch limit
+            return {
+                "success": False,
+                "error": "Batch size limited to 100 files per operation",
+                "total_files": len(file_paths),
+                "successful_files": 0,
+                "failed_files": len(file_paths),
+                "results": []
+            }
+        
+        # Normalize file paths
+        normalized_paths = []
+        for file_path in file_paths:
+            if not isinstance(file_path, str):
+                return {
+                    "success": False,
+                    "error": f"All file paths must be strings, got: {type(file_path)}",
+                    "total_files": len(file_paths),
+                    "successful_files": 0,
+                    "failed_files": len(file_paths),
+                    "results": []
+                }
+            normalized_paths.append(_normalize_file_path(file_path))
+        
+        rag_api: RagAPI = ctx.request_context.lifespan_context.rag_api
+        result = rag_api.batch_add_documents(normalized_paths)
+        
+        # Log results
+        if result.get("success"):
+            ctx.info(f"Batch add completed successfully: {result.get('successful_files', 0)} files processed")
+        else:
+            failed = result.get('failed_files', 0)
+            successful = result.get('successful_files', 0)
+            ctx.error(f"Batch add completed with errors: {successful} successful, {failed} failed")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Exception in batch_add_documents_from_files: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "total_files": len(file_paths) if file_paths else 0,
+            "successful_files": 0,
+            "failed_files": len(file_paths) if file_paths else 0,
+            "results": []
+        }
+
+
+@mcp.tool()
+def batch_remove_documents_from_knowledge_base(ctx: Context, document_ids: List[str]) -> Dict[str, Any]:
+    """
+    Remove multiple documents from the knowledge base by their unique identifiers.
+    
+    This tool performs bulk removal of documents, providing efficient batch
+    deletion with comprehensive tracking and safety features. Each document
+    is validated before removal to prevent errors.
+    
+    Safety features:
+    - Validates each document ID before attempting removal
+    - Provides detailed feedback about what was and wasn't removed
+    - Transaction-safe: failures don't affect successfully removed documents
+    - Comprehensive error reporting for failed removals
+    - Maintains data integrity throughout the batch operation
+    
+    Performance considerations:
+    - Removal operations are generally fast (metadata deletion)
+    - Network latency may affect large batches
+    - Consider breaking very large batches (1000+) into smaller chunks
+    - Failed removals don't block successful ones
+    
+    Use cases:
+    - Clean up outdated documentation in bulk
+    - Remove test data after development cycles
+    - Delete duplicate or incorrect content
+    - Periodic maintenance of the knowledge base
+    - Migration cleanup when replacing content
+    
+    Args:
+        document_ids: List of unique document identifiers to remove.
+                     These IDs are returned when documents are added or found in search results.
+                     Each ID must be a non-empty string.
+                     
+    Returns:
+        Batch removal result dictionary containing:
+        - success: Boolean indicating overall batch success (true only if all removals succeeded)
+        - total_documents: Total number of documents targeted for removal
+        - successful_removals: Number of documents successfully removed
+        - failed_removals: Number of documents that failed to remove
+        - results: Array of individual removal results with success/error details
+        - message: Summary message describing the batch operation outcome
+        - errors: Array of error messages for failed removals (null if no errors)
+        
+    Examples:
+        batch_remove_documents_from_knowledge_base(["doc_123", "doc_456"])
+        batch_remove_documents_from_knowledge_base(["uuid-generated-id"])
+    """
+    try:
+        logger.info(f"MCP Tool: batch_remove_documents_from_knowledge_base called with {len(document_ids)} documents")
+        
+        # Input validation
+        if not document_ids or not isinstance(document_ids, list):
+            return {
+                "success": False,
+                "error": "document_ids must be a non-empty list",
+                "total_documents": 0,
+                "successful_removals": 0,
+                "failed_removals": 0,
+                "results": []
+            }
+        
+        if len(document_ids) > 1000:  # Reasonable batch limit
+            return {
+                "success": False,
+                "error": "Batch size limited to 1000 documents per operation",
+                "total_documents": len(document_ids),
+                "successful_removals": 0,
+                "failed_removals": len(document_ids),
+                "results": []
+            }
+        
+        # Validate document IDs
+        for doc_id in document_ids:
+            if not isinstance(doc_id, str) or not doc_id.strip():
+                return {
+                    "success": False,
+                    "error": f"All document IDs must be non-empty strings, got: {type(doc_id)}",
+                    "total_documents": len(document_ids),
+                    "successful_removals": 0,
+                    "failed_removals": len(document_ids),
+                    "results": []
+                }
+        
+        rag_api: RagAPI = ctx.request_context.lifespan_context.rag_api
+        result = rag_api.batch_remove_documents(document_ids)
+        
+        # Log results
+        if result.get("success"):
+            ctx.info(f"Batch removal completed successfully: {result.get('successful_removals', 0)} documents removed")
+        else:
+            failed = result.get('failed_removals', 0)
+            successful = result.get('successful_removals', 0)
+            ctx.error(f"Batch removal completed with errors: {successful} successful, {failed} failed")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Exception in batch_remove_documents_from_knowledge_base: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "total_documents": len(document_ids) if document_ids else 0,
+            "successful_removals": 0,
+            "failed_removals": len(document_ids) if document_ids else 0,
+            "results": []
         }
 
 

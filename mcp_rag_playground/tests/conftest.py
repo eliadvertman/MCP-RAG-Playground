@@ -215,10 +215,7 @@ def rag_api_basic(test_collection_name):
     # Create real components
     milvus_config = MilvusConfig(
         host="localhost",
-        port=19530,
-        collection_name=test_collection_name,
-        index_type="IVF_FLAT",
-        metric_type="COSINE"
+        port=19530
     )
     vector_db = MilvusVectorDB(config=milvus_config)
     embedding_service = SentenceTransformerEmbedding(model_name="all-MiniLM-L6-v2")
