@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
-from mcp_rag_playground.rag.rag_api_basic import RagAPI
+from mcp_rag_playground.rag.rag_api import RagAPI
 from mcp_rag_playground.vectordb.vector_client import VectorClient
 from mcp_rag_playground.vectordb.milvus.milvus_client import MilvusVectorDB
 from mcp_rag_playground.vectordb.embedding_service import SentenceTransformerEmbedding
