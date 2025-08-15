@@ -87,7 +87,23 @@ so that I can easily retrieve relevant information from the knowledge base.
 - IV2: Source attribution correctly references documents managed through Stories 1.1-1.2
 - IV3: Query performance remains within existing system limits and response time expectations
 
-### Story 1.6: Comprehensive Tracking Dashboard
+### Story 1.6: REST API Interface
+As a web developer or external system integrator,  
+I want REST API endpoints for question-answering and document operations,  
+so that I can integrate the knowledge base with web applications and external systems via HTTP.
+
+**Acceptance Criteria:**
+1. HTTP endpoints create REST API endpoints that wrap existing Q&A and document management functionality
+2. Response consistency ensures API responses match the format and quality of MCP tool responses
+3. Optional deployment allows REST API to be enabled/disabled independently without affecting MCP functionality
+4. Web integration supports CORS and standard HTTP patterns for web application integration
+
+**Integration Verification:**
+- IV1: REST API endpoints provide equivalent functionality to corresponding MCP tools
+- IV2: API responses maintain consistency with MCP tool response formats and quality
+- IV3: Optional API deployment doesn't interfere with existing MCP server functionality
+
+### Story 1.7: Comprehensive Tracking Dashboard
 As a knowledge base administrator,  
 I want detailed visibility into knowledge base composition and usage,  
 so that I can make informed decisions about content management and system optimization.
@@ -95,7 +111,7 @@ so that I can make informed decisions about content management and system optimi
 **Acceptance Criteria:**
 1. Dashboard displays all document and chunk metadata captured in previous stories
 2. Tracking interface shows processing status from smart pipeline (Story 1.4)
-3. Usage analytics integrate with query data from enhanced Q&A interface (Story 1.5)
+3. Usage analytics integrate with query data from enhanced Q&A interface (Stories 1.5-1.6)
 4. Dashboard can be deployed independently without affecting core RAG functionality
 
 **Integration Verification:**
@@ -103,23 +119,23 @@ so that I can make informed decisions about content management and system optimi
 - IV2: Dashboard deployment doesn't interfere with existing MCP server or vector operations
 - IV3: Optional web interface degrades gracefully if not available, maintaining CLI/MCP functionality
 
-### Story 1.7: Integration & Export Capabilities
+### Story 1.8: Integration & Export Capabilities
 As a system integrator,  
 I want comprehensive API and export functionality,  
 so that I can integrate the knowledge base with external systems and workflows.
 
 **Acceptance Criteria:**
-1. REST API endpoints expose all functionality while coexisting with MCP server
+1. Export API endpoints expose all functionality while leveraging existing MCP server and REST API (Story 1.6)
 2. Bulk operations support batch processing without overwhelming system resources
 3. Export functionality provides multiple formats (JSON, CSV, PDF) for all tracked data
 4. API versioning ensures backward compatibility and future extensibility
 
 **Integration Verification:**
-- IV1: REST API and MCP server coexist without port conflicts or resource contention
+- IV1: Export functionality integrates with existing MCP server and REST API (Story 1.6) without conflicts
 - IV2: Bulk operations complete successfully using data and metadata from all previous stories
 - IV3: Export formats accurately represent complete system state including all enhancements
 
-### Story 1.8: Document Upload Progress Tracking
+### Story 1.9: Document Upload Progress Tracking
 As a knowledge base user,  
 I want to see real-time progress when uploading documents,  
 so that I can monitor upload status and know when the process is complete.
