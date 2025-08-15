@@ -2,7 +2,9 @@
 
 **Epic Goal**: Transform the MCP RAG playground into a comprehensive knowledge management system with intelligent document processing, intuitive querying, detailed tracking capabilities, and robust integration options while maintaining all existing functionality.
 
-**Integration Requirements**: All enhancements must seamlessly integrate with existing Container DI system, maintain FastMCP server compatibility, and preserve current vector database performance characteristics.
+**Integration Requirements**: All enhancements must seamlessly integrate with existing Container DI system, maintain FastMCP server compatibility, preserve current vector database performance characteristics, and comply with Python 3.12+ runtime requirements as specified in the technical architecture.
+
+**Technical Foundation**: This epic builds upon the established Python 3.12+ runtime environment with dependency-injector framework, Milvus vector database, and MCP protocol integration as defined in the high-level architecture document.
 
 ### Story 1.1: Enhanced Document Metadata Tracking Foundation
 As a knowledge base administrator,  
@@ -16,7 +18,7 @@ so that I can monitor and manage the knowledge base composition effectively.
 4. New tracking capabilities are accessible through MCP tools for backward compatibility
 
 **Integration Verification:**
-- IV1: All existing document ingestion workflows continue to function without modification
+- IV1: All existing document ingestion workflows continue to function without modification within Python 3.12+ runtime environment
 - IV2: Current vector search and retrieval operations maintain existing performance levels
 - IV3: Existing MCP server tools (add file/content, search, delete) work unchanged with new metadata layer
 
