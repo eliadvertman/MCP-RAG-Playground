@@ -6,11 +6,13 @@ Defaults to production configuration.
 from dependency_injector import containers, providers
 from typing import Optional
 
+from mcp_rag_playground.tests.test_qa_interface import qa_interface
 from mcp_rag_playground.vectordb.milvus.milvus_client import MilvusVectorDB
 from mcp_rag_playground.vectordb.embedding_service import SentenceTransformerEmbedding
 from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
 from mcp_rag_playground.vectordb.vector_client import VectorClient
 from mcp_rag_playground.rag.rag_api import RagAPI
+from mcp_rag_playground.rag.qa_interface import QuestionAnsweringInterface
 from mcp_rag_playground.config.milvus_config import MilvusConfig
 
 
@@ -49,10 +51,20 @@ class Container(containers.DeclarativeContainer):
         document_processor=document_processor,
         collection_name=providers.Callable(lambda: "prod_kb_collection")
     )
+
+    # Enhanced Q&A Interface
+    qa_interface = providers.Singleton(
+        QuestionAnsweringInterface,
+        vector_client=vector_client,
+        collection_name=providers.Callable(lambda: "prod_collection")
+    )
     
     # Production RAG API
     rag_api = providers.Singleton(
         RagAPI,
         vector_client=vector_client,
+        qa_interface = qa_interface,
         collection_name=providers.Callable(lambda: "prod_collection")
     )
+    
+

@@ -5,13 +5,13 @@ This module provides a simplified API for document ingestion and semantic search
 wrapping the underlying vector database client with user-friendly methods.
 """
 
-from typing import List, Dict, Any, Union, Optional
 import os
-from pathlib import Path
+from typing import List, Dict, Any
 
+from mcp_rag_playground.config.logging_config import get_logger
+from mcp_rag_playground.rag.qa_interface import QuestionAnsweringInterface
 from mcp_rag_playground.vectordb.vector_client import VectorClient
 from mcp_rag_playground.vectordb.vector_db_interface import SearchResult
-from mcp_rag_playground.config.logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -24,7 +24,7 @@ class RagAPI:
     abstracting away the complexity of the underlying vector database operations.
     """
     
-    def __init__(self, vector_client: VectorClient, collection_name: str = "rag_collection"):
+    def __init__(self, vector_client: VectorClient, qa_interface : QuestionAnsweringInterface, collection_name: str = "rag_collection"):
         """
         Initialize the RAG API.
         
@@ -33,6 +33,7 @@ class RagAPI:
             collection_name: Name for the document collection
         """
         self.vector_client = vector_client
+        self.qa_interface = qa_interface
         self.collection_name = collection_name
         # Update the vector client's collection name
         self.vector_client.collection_name = collection_name
@@ -475,4 +476,131 @@ class RagAPI:
                 "successful_removals": 0,
                 "failed_removals": len(document_ids) if document_ids else 0,
                 "results": []
+            }
+    
+    def ask_question(self, 
+                    question: str, 
+                    max_sources: int = 5, 
+                    include_context: bool = True,
+                    min_score: float = 0.3) -> Dict[str, Any]:
+        """
+        Ask a natural language question and get an enhanced answer with sources.
+        
+        This method provides enhanced question-answering capabilities with natural
+        language processing, source attribution, and structured responses. It extends
+        the basic query functionality with intelligent context analysis and citation.
+        
+        Features:
+        - Natural language query preprocessing and expansion
+        - Question type detection (factual, procedural, boolean, etc.)
+        - Enhanced source attribution with detailed citations
+        - Context-aware answer generation
+        - Confidence scoring and query suggestions
+        - Rich metadata about the Q&A process
+        
+        Args:
+            question: Natural language question to ask
+            max_sources: Maximum number of source documents to include (default: 5)
+            include_context: Whether to include context snippets (default: True)
+            min_score: Minimum similarity score threshold (default: 0.3)
+            
+        Returns:
+            Dict containing:
+            - success: Boolean indicating if operation succeeded
+            - question: The original question
+            - answer: Generated answer with source attribution
+            - sources: List of enhanced search results with citations
+            - confidence_score: Confidence in the answer (0.0-1.0)
+            - processing_time: Time taken to process the question
+            - suggestions: List of query refinement suggestions
+            - metadata: Additional processing information
+            - error: Error details if operation failed
+            
+        Examples:
+            # Basic question
+            result = api.ask_question("What is machine learning?")
+            
+            # Question with custom parameters
+            result = api.ask_question(
+                "How do I configure SSL?", 
+                max_sources=3, 
+                min_score=0.5
+            )
+            
+            # Access structured response
+            if result["success"]:
+                print(f"Answer: {result['answer']}")
+                print(f"Confidence: {result['confidence_score']}")
+                for source in result['sources']:
+                    print(f"Source: {source['citation']}")
+        """
+        try:
+            logger.info(f"RAG API ask_question: '{question}' (max_sources: {max_sources})")
+
+            # Process the question
+            qa_response = self.qa_interface.ask_question(
+                question=question,
+                max_sources=max_sources,
+                include_context=include_context,
+                min_score=min_score
+            )
+            
+            # Convert QAResponse to dictionary format
+            sources_list = []
+            for source in qa_response.sources:
+                source_dict = {
+                    "content": source.document.content,
+                    "score": source.score,
+                    "distance": source.distance,
+                    "context": source.context,
+                    "citation": source.citation,
+                    "relevance_explanation": source.relevance_explanation,
+                    "metadata": source.document.metadata.copy(),
+                    "document_id": source.document.id,
+                    "filename": source.document.filename,
+                    "file_type": source.document.file_type,
+                    "ingestion_timestamp": source.document.ingestion_timestamp.isoformat() if source.document.ingestion_timestamp else None,
+                    "chunk_position": source.document.chunk_position,
+                    "chunk_count": source.document.chunk_count,
+                    "file_size": source.document.file_size,
+                    "embedding_status": source.document.embedding_status
+                }
+                sources_list.append(source_dict)
+            
+            # Check if this is an error response
+            is_error = "error" in qa_response.metadata
+            
+            result = {
+                "success": not is_error,
+                "question": qa_response.question,
+                "answer": qa_response.answer,
+                "sources": sources_list,
+                "confidence_score": qa_response.confidence_score,
+                "processing_time": qa_response.processing_time,
+                "suggestions": qa_response.suggestions,
+                "metadata": qa_response.metadata,
+                "sources_count": len(sources_list),
+                "max_source_score": qa_response.metadata.get("max_source_score", 0.0),
+                "avg_source_score": qa_response.metadata.get("avg_source_score", 0.0)
+            }
+            
+            # Add error field if it was an error
+            if is_error:
+                result["error"] = qa_response.metadata["error"]
+            
+            logger.info(f"Q&A completed successfully: {len(sources_list)} sources, confidence: {qa_response.confidence_score:.3f}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in ask_question: {e}")
+            return {
+                "success": False,
+                "question": question,
+                "error": str(e),
+                "answer": f"I encountered an error while processing your question: {str(e)}",
+                "sources": [],
+                "confidence_score": 0.0,
+                "processing_time": 0.0,
+                "suggestions": ["Please try rephrasing your question"],
+                "metadata": {"error": str(e)}
             }

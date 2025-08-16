@@ -203,7 +203,7 @@ def milvus_client_basic(milvus_config_basic):
 
 # RAG API fixtures (moved from test files)
 @pytest.fixture
-def rag_api_basic(test_collection_name):
+def rag_api(test_collection_name):
     """Create RagAPI with real components for integration testing."""
     from mcp_rag_playground.rag.rag_api import RagAPI
     from mcp_rag_playground.vectordb.vector_client import VectorClient
@@ -229,5 +229,66 @@ def rag_api_basic(test_collection_name):
         collection_name=test_collection_name
     )
     
-    # Create RAG API
-    return RagAPI(vector_client=vector_client, collection_name=test_collection_name)
+    # Create Q&A interface and RAG API with enhanced capabilities
+    from mcp_rag_playground.rag.qa_interface import QuestionAnsweringInterface
+    qa_interface = QuestionAnsweringInterface(vector_client, test_collection_name)
+    return RagAPI(vector_client=vector_client, qa_interface=qa_interface, collection_name=test_collection_name)
+
+
+@pytest.fixture
+def rag_api_basic(test_collection_name):
+    """Create basic RagAPI without Q&A interface for backward compatibility."""
+    from mcp_rag_playground.rag.rag_api import RagAPI
+    from mcp_rag_playground.vectordb.vector_client import VectorClient
+    from mcp_rag_playground.vectordb.milvus.milvus_client import MilvusVectorDB
+    from mcp_rag_playground.vectordb.embedding_service import SentenceTransformerEmbedding
+    from mcp_rag_playground.vectordb.processor.document_processor import DocumentProcessor
+    from mcp_rag_playground.config.milvus_config import MilvusConfig
+    
+    # Create real components
+    milvus_config = MilvusConfig(
+        host="localhost",
+        port=19530
+    )
+    vector_db = MilvusVectorDB(config=milvus_config)
+    embedding_service = SentenceTransformerEmbedding(model_name="all-MiniLM-L6-v2")
+    document_processor = DocumentProcessor()
+    
+    # Create vector client
+    vector_client = VectorClient(
+        vector_db=vector_db,
+        embedding_service=embedding_service,
+        document_processor=document_processor,
+        collection_name=test_collection_name
+    )
+    
+    # Create basic RAG API without Q&A interface (for legacy tests)
+    from mcp_rag_playground.rag.qa_interface import QuestionAnsweringInterface
+    qa_interface = QuestionAnsweringInterface(vector_client, test_collection_name)
+    return RagAPI(vector_client=vector_client, qa_interface=qa_interface, collection_name=test_collection_name)
+
+
+@pytest.fixture
+def mock_rag_api_enhanced(test_collection_name):
+    """Create mock-based RagAPI with Q&A interface for testing without dependencies."""
+    from unittest.mock import Mock
+    from mcp_rag_playground.rag.rag_api import RagAPI
+    from mcp_rag_playground.rag.qa_interface import QuestionAnsweringInterface
+    
+    # Create mock components
+    mock_vector_client = Mock()
+    mock_vector_client.collection_name = test_collection_name
+    
+    # Create real Q&A interface with mocked vector client
+    qa_interface = QuestionAnsweringInterface(mock_vector_client, test_collection_name)
+    
+    # Create RagAPI with mocked components
+    rag_api = RagAPI(vector_client=mock_vector_client, qa_interface=qa_interface, collection_name=test_collection_name)
+    
+    # Mock the methods that would require real dependencies
+    rag_api.add_document = Mock(return_value={"success": True, "filename": "test.txt", "file_size": 1024, "file_type": ".txt", "message": "Added successfully"})
+    rag_api.query = Mock(return_value=[])
+    rag_api.delete_collection = Mock(return_value=True)
+    rag_api.get_collection_info = Mock(return_value={"collection_ready": True, "document_count": 0, "collection_name": test_collection_name, "status": "ready"})
+    
+    return rag_api
