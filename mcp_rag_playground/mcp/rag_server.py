@@ -308,78 +308,14 @@ def add_document_from_content(ctx: Context, content: str, metadata: Optional[Dic
 
 
 @mcp.tool()
-def search_knowledge_base(
+def find_documents(
     ctx: Context,
     query: str,
     limit: int = 5,
     min_score: float = 0.0
 ) -> Dict[str, Any]:
-    """
-    Perform semantic search across the knowledge base to find relevant documents.
-
-    This tool uses advanced semantic search (not just keyword matching) to find documents
-    that are conceptually related to your query. It understands context, synonyms, and
-    meaning to return the most relevant content from your knowledge base.
-
-    Search capabilities:
-    - Semantic understanding: Finds documents by meaning, not just exact words
-    - Query preprocessing: Automatically expands abbreviations (db→database, ai→artificial intelligence)
-    - Similarity scoring: Returns confidence scores (0.0-1.0) for each result
-    - Flexible filtering: Use min_score to filter low-quality matches
-    - Rich metadata: Includes source information, document structure, and relevance context
-
-    Scoring system:
-    - 1.0: Perfect semantic match
-    - 0.8-0.9: Highly relevant content
-    - 0.7-0.8: Good relevance (recommended minimum for most use cases)
-    - 0.5-0.7: Moderate relevance
-    - 0.0-0.5: Lower relevance (consider filtering out)
-
-    Query optimization tips:
-    - Use natural language questions: "How do I configure SSL?"
-    - Include context: "Python error handling best practices"
-    - Try different phrasings if results aren't optimal
-    - Use specific terms for technical topics
-
-    Use cases:
-    - Answer customer support questions from documentation
-    - Find relevant code examples and snippets
-    - Research topics across multiple documents
-    - Fact-checking and information verification
-    - Content discovery and knowledge exploration
-    - RAG (Retrieval-Augmented Generation) for AI applications
-
-    Args:
-        query: Natural language search query. Can be a question, keywords, or description
-              of what you're looking for. Empty queries are not allowed.
-        limit: Maximum number of results to return (1-50, default: 5). Higher limits
-              may include less relevant results but provide broader coverage.
-        min_score: Minimum similarity score threshold (0.0-1.0, default: 0.0).
-                  Recommended values: 0.7 for high precision, 0.5 for broader results.
-
-    Returns:
-        Search results dictionary containing:
-        - success: Boolean indicating if the search succeeded
-        - query: The processed search query
-        - total_results: Number of documents found
-        - limit: Applied result limit
-        - min_score: Applied score threshold
-        - results: Array of matching documents, each containing:
-          * content: The relevant document text
-          * score: Similarity score (0.0-1.0)
-          * metadata: Document metadata (source, topic, etc.)
-          * source: Primary source identifier
-          * document_id: Unique document identifier
-
-    Examples:
-        search_knowledge_base("How to install Python packages?")
-        search_knowledge_base("database connection errors", limit=10, min_score=0.7)
-        search_knowledge_base("API authentication methods", limit=3, min_score=0.8)
-        :param min_score:
-        :param limit:
-        :param query:
-        :param ctx:
-    """
+    """Search for specific documents using keyword/semantic similarity.
+    Use this for: finding specific documents, exploring content, research."""
     try:
         logger.info(f"MCP Tool: search_knowledge_base called with query: '{query}' (limit: {limit}, min_score: {min_score})")
 
@@ -1029,91 +965,102 @@ def delete_collection(ctx: Context) -> Dict[str, Any]:
         }
 
 
-#
-# def _setup_resources(self):
-#     """Setup MCP resources for accessing knowledge base content."""
-#
-#     @self.mcp.resource("rag://collection/info")
-#     def get_collection_resource() -> str:
-#         """Get collection information as a resource."""
-#         try:
-#             info = self.rag_api.get_collection_info()
-#             return json.dumps(info, indent=2)
-#         except Exception as e:
-#             return json.dumps({"error": str(e)}, indent=2)
-#
-#     @self.mcp.resource("rag://search/{query}")
-#     def search_resource(query: str) -> str:
-#         """Get search results as a resource."""
-#         try:
-#             results = self.rag_api.query(query, limit=10)
-#             return json.dumps({
-#                 "query": query,
-#                 "results": results
-#             }, indent=2)
-#         except Exception as e:
-#             return json.dumps({
-#                 "query": query,
-#                 "error": str(e)
-#             }, indent=2)
-#
-# def _setup_prompts(self):
-#     """Setup MCP prompts for RAG operations."""
-#
-#     @self.mcp.prompt()
-#     def rag_search_prompt(
-#         query: str,
-#         context_type: str = "comprehensive",
-#         max_results: int = 5
-#     ) -> str:
-#         """
-#         Generate a prompt for RAG-based question answering.
-#
-#         Args:
-#             query: The user's question or search query
-#             context_type: Type of context to provide ("comprehensive", "focused", "summary")
-#             max_results: Maximum number of context documents to include
-#         """
-#         try:
-#             # Get relevant documents
-#             results = self.rag_api.query(query, limit=max_results, min_score=0.3)
-#
-#             if not results:
-#                 return f"""I don't have any relevant information in my knowledge base to answer the question: "{query}"
-#
-# Please let me know if you'd like me to help you add relevant documents to the knowledge base first."""
-#
-#             # Build context based on type
-#             if context_type == "summary":
-#                 context = "\n".join([
-#                     f"- {result['content'][:100]}..."
-#                     for result in results[:3]
-#                 ])
-#             elif context_type == "focused":
-#                 context = "\n\n".join([
-#                     f"Source: {result['source']}\nContent: {result['content'][:200]}..."
-#                     for result in results[:2]
-#                 ])
-#             else:  # comprehensive
-#                 context = "\n\n".join([
-#                     f"Source: {result['source']} (Score: {result['score']:.3f})\n{result['content']}"
-#                     for result in results
-#                 ])
-#
-#             prompt = f"""Based on the following context from my knowledge base, please answer this question: "{query}"
-#
-# Context:
-# {context}
-#
-# Please provide a comprehensive answer based on the context above. If the context doesn't fully answer the question, please indicate what information might be missing."""
-#
-#             return prompt
-#
-#         except Exception as e:
-#             return f"""Error generating RAG prompt for query "{query}": {str(e)}
-#
-# Please try rephrasing your question or check if the knowledge base is properly configured."""
-#
-# def get_server(self) -> FastMCP:
-#     """Get the configured MCP server instance."""
-#     return self.mcp
+@mcp.tool()
+def answer_question(
+    ctx: Context,
+    question: str,
+    max_sources: int = 5,
+    include_citations: bool = True,
+    min_score: float = 0.3
+) -> Dict[str, Any]:
+    """Answer natural language questions with synthesized responses and source citations.
+     Use this for: questions, explanations, how-to requests, troubleshooting."""
+    try:
+        logger.info(f"MCP Tool: ask_question called with: '{question}' (max_sources: {max_sources}, min_score: {min_score})")
+        
+        # Input validation
+        if not question or not question.strip():
+            logger.warning("Empty question provided to ask_question")
+            return {
+                "success": False,
+                "error": "Question cannot be empty",
+                "question": question,
+                "answer": "Please provide a valid question to get an answer.",
+                "sources": [],
+                "confidence_score": 0.0,
+                "processing_time": 0.0,
+                "suggestions": ["Enter a clear, specific question", "Try asking 'What is...' or 'How do I...'"],
+                "metadata": {"error": "empty_question"}
+            }
+        
+        # Validate parameters
+        if max_sources < 1 or max_sources > 10:
+            return {
+                "success": False,
+                "error": "max_sources must be between 1 and 10",
+                "question": question,
+                "sources": [],
+                "confidence_score": 0.0
+            }
+        
+        if not 0.0 <= min_score <= 1.0:
+            return {
+                "success": False,
+                "error": "min_score must be between 0.0 and 1.0",
+                "question": question,
+                "sources": [],
+                "confidence_score": 0.0
+            }
+        
+        # Get RAG API from context
+        rag_api: RagAPI = ctx.request_context.lifespan_context.rag_api
+        
+        # Use the enhanced ask_question method
+        result = rag_api.ask_question(
+            question=question.strip(),
+            max_sources=max_sources,
+            include_context=include_citations,
+            min_score=min_score
+        )
+        
+        # Enhance the result with MCP-specific formatting if successful
+        if result.get("success"):
+            # Add MCP-specific enhancements
+            result["tool_used"] = "ask_question"
+            result["response_type"] = "enhanced_qa"
+            
+            # Add user-friendly formatting hints
+            if result.get("sources"):
+                result["citation_count"] = len(result["sources"])
+                result["primary_source"] = result["sources"][0].get("citation", "Unknown") if result["sources"] else None
+            
+            # Add processing insights
+            confidence = result.get("confidence_score", 0.0)
+            if confidence >= 0.8:
+                result["quality_indicator"] = "high_confidence"
+            elif confidence >= 0.6:
+                result["quality_indicator"] = "good_confidence"
+            elif confidence >= 0.4:
+                result["quality_indicator"] = "moderate_confidence"
+            else:
+                result["quality_indicator"] = "low_confidence"
+            
+            ctx.info(f"Enhanced Q&A completed: {result.get('sources_count', 0)} sources, confidence: {confidence:.3f}")
+        else:
+            ctx.error(f"Enhanced Q&A failed: {result.get('error', 'Unknown error')}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Exception in ask_question MCP tool: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "question": question,
+            "answer": f"I encountered an error while processing your question: {str(e)}",
+            "sources": [],
+            "confidence_score": 0.0,
+            "processing_time": 0.0,
+            "suggestions": ["Please try rephrasing your question", "Check if relevant documents are in the knowledge base"],
+            "metadata": {"mcp_error": str(e)}
+        }
